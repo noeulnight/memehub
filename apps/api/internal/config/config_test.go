@@ -12,6 +12,8 @@ func TestConfigurationValidation(t *testing.T) {
 		wantError        bool
 	}{
 		{name: "valid"},
+		{"invalid vector switch", "VECTOR_SEARCH_ENABLED", "maybe", true},
+		{"vector search without key", "VECTOR_SEARCH_ENABLED", "true", true},
 		{"invalid deleted retention", "DELETED_IMAGE_RETENTION_DAYS", "0", true},
 		{"excessive deleted retention", "DELETED_IMAGE_RETENTION_DAYS", "366", true},
 		{"unsafe upload retention", "INCOMPLETE_UPLOAD_RETENTION_HOURS", "1", true},

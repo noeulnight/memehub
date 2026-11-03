@@ -15,6 +15,7 @@ import (
 	"github.com/noeulnight/memehub/apps/api/internal/analysis"
 	"github.com/noeulnight/memehub/apps/api/internal/cleanup"
 	"github.com/noeulnight/memehub/apps/api/internal/config"
+	"github.com/noeulnight/memehub/apps/api/internal/embedding"
 	"github.com/noeulnight/memehub/apps/api/internal/server"
 	"github.com/noeulnight/memehub/apps/api/internal/storage"
 )
@@ -82,6 +83,12 @@ func run() error {
 		}()
 	} else {
 		slog.Warn("automatic analysis disabled: OPENAI_API_KEY is not configured")
+	}
+	if cfg.VectorSearchEnabled {
+		worker := &embedding.Worker{DB: pool, Embedder: embedding.NewClient(cfg.OpenAIAPIKey)}
+		done := make(chan struct{})
+		go func() { defer close(done); worker.Run(ctx) }()
+		defer func() { cancel(); <-done }()
 	}
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: app.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 25 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: time.Minute, MaxHeaderBytes: 16384}
 	done := make(chan error, 1)

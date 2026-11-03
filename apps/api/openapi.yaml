@@ -381,9 +381,13 @@ paths:
         - Memes
       summary: Search the shared meme library
       description:
-        Public endpoint. Includes only ready, non-deleted memes. Orders by created_at DESC, id
-        DESC. Returns an empty items array and a nullable next_cursor. The cursor does not create a
-        stable snapshot; newly created memes appear on a fresh first page.
+        Public endpoint. Includes only ready, non-deleted memes. Without a text query, orders by
+        created_at DESC, id DESC. When VECTOR_SEARCH_ENABLED is true, text queries combine keyword
+        and text-embedding-3-large semantic rankings, prioritizing exact title, OCR, and tag matches.
+        Search results are limited to 500 IDs and keep their order for 10 minutes across pages.
+        Visibility and collection membership are checked on every page. Expired search cursors return
+        400 search_cursor_expired; restart from the first page. OpenAI failures fall back to keyword
+        results. Without vector search, text queries retain substring matching and creation order.
       x-implementation-status: implemented
       security: []
       responses:
@@ -414,13 +418,15 @@ paths:
             default: false
         - name: collection
           in: query
-          description: Filter to a collection owned by the authenticated user. Requires login; returns 404 for missing or other users' collections. Combines with all existing filters and uses the same meme creation order and cursor.
+          description: Filter to a collection owned by the authenticated user. Requires login; returns 404 for missing or other users' collections. Combines with all existing filters and preserves the active list or search ordering.
           schema: { type: string, format: uuid }
         - name: q
           in: query
           description:
             Case-insensitive substring search across title, body, description, OCR text, source
             name, source author, and tag names. Percent and underscore are literal characters.
+            When vector search is enabled, also matches the meaning of title, body, description,
+            OCR text, and tags. Queries are sent to OpenAI for embedding and cached briefly.
           required: false
           schema:
             type: string
