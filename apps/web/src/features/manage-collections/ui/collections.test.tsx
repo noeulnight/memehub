@@ -244,7 +244,11 @@ describe('collection interactions', () => {
     });
     expect(hover.getAttribute('data-hovered')).toBe('true');
     const card = document.querySelector('article button')!;
-    expect(card.getAttribute('aria-label')).toContain('Hold for options');
+    expect(card.getAttribute('aria-label')).toBe('Copy text: Reaction');
+    const tooltip = document.getElementById(card.getAttribute('aria-describedby')!);
+    expect(tooltip?.getAttribute('role')).toBe('tooltip');
+    expect(tooltip?.textContent).toContain('Click to copy · Hold for options');
+    expect(card.hasAttribute('title')).toBe(false);
     await act(async () => {
       card.dispatchEvent(
         new PointerEvent('pointerdown', {
