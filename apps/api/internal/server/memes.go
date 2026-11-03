@@ -429,8 +429,8 @@ func (s *Server) listMemesFiltered(w http.ResponseWriter, r *http.Request, analy
 	pattern := "%" + strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(q) + "%"
 	rows, err := s.db.Query(r.Context(), "SELECT "+memeColumns+" FROM memes m WHERE "+memeScopeSQL+`
  AND (`+memeTextSQL+`)
- AND ($10::timestamptz IS NULL OR (m.created_at,m.id)<($10,$11::uuid))
- ORDER BY m.created_at DESC,m.id DESC LIMIT $12`, append(args, pattern, at, id, limit+1)...)
+ AND ($11::timestamptz IS NULL OR (m.created_at,m.id)<($11,$12::uuid))
+ ORDER BY m.created_at DESC,m.id DESC LIMIT $13`, append(args, pattern, q, at, id, limit+1)...)
 	if err != nil {
 		internal(w)
 		return

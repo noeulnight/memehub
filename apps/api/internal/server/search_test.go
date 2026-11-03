@@ -221,12 +221,14 @@ func TestHybridSearchCachedCorpus(t *testing.T) {
 		}
 		app.embedder = embedding.NewQueryCache(embedding.NewClient(key))
 	}
+	positives, topOne, topFive := 0, 0, 0
 	for _, c := range cases {
 		var q string
 		var targets []string
 		json.Unmarshal(c[0], &q)
 		json.Unmarshal(c[1], &targets)
 		t.Run(q, func(t *testing.T) {
+			started := time.Now()
 			w := request(t, app.Handler(), "GET", "/api/memes?q="+url.QueryEscape(q)+"&limit=5", nil, nil, "")
 			mustStatus(t, w, 200)
 			var p struct {
@@ -245,16 +247,109 @@ func TestHybridSearchCachedCorpus(t *testing.T) {
 					}
 				}
 			}
+			if len(targets) > 0 {
+				positives++
+				if rank == 1 {
+					topOne++
+				}
+				if rank > 0 {
+					topFive++
+				}
+			}
 			if len(targets) > 0 && rank == 0 {
 				t.Errorf("target absent from top five: %+v", p.Items)
 			}
-			t.Logf("target rank: %d; top results: %v", rank, func() []string {
+			t.Logf("target rank: %d; response: %s; top results: %v", rank, time.Since(started), func() []string {
 				var s []string
 				for _, m := range p.Items {
 					s = append(s, m.Title)
 				}
 				return s
 			}())
+		})
+	}
+	t.Logf("positive cases: %d; top1: %d; top5: %d (cached vectors; no provider latency)", positives, topOne, topFive)
+}
+
+func TestSearchNormalizationAndFieldPriority(t *testing.T) {
+	db := testPool(t)
+	ctx := context.Background()
+	user := uuid.New()
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := db.Exec(ctx, sql, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO users(id,oidc_issuer,oidc_subject) VALUES($1,'test','search-normalization')`, user)
+	insert := func(title, ocr, body, description string, similarity float64) uuid.UUID {
+		id := uuid.New()
+		if ocr != "" {
+			exec(`INSERT INTO memes(id,created_by,content_type,title,extracted_text,description,status,analysis_status,original_filename,original_object_key,mime_type,size_bytes,width,height,sha256)
+ VALUES($1,$2,'image',$3,$4,$5,'ready','completed','test.png',$6,'image/png',1,1,1,$7)`, id, user, title, ocr, description, id.String(), strings.Repeat("a", 64))
+		} else {
+			exec(`INSERT INTO memes(id,created_by,content_type,title,body_text,description,status,analysis_status) VALUES($1,$2,'text',$3,$4,$5,'ready','completed')`, id, user, title, body, description)
+		}
+		exec(`INSERT INTO meme_embeddings(meme_id,model,input_version,input_hash,content_revision,embedding) VALUES($1,$2,'v1','test',0,$3::public.vector)`, id, embedding.Model, embedding.Literal(searchVector(similarity)))
+		return id
+	}
+	yoi := insert("cat 7", "요~이!", "본문", "", .01)
+	space := insert("cat 8", "하기\n싫어...", "본문", "", .01)
+	fullwidth := insert("cat 9", "ＡＢＣ！", "본문", "", .01)
+	ocr := insert("cat 10", "고마워!", "본문", "", .01)
+	tagged := insert("cat 11", "", "본문", "", .01)
+	desc := insert("cat 12", "", "본문", "고마워 라고 답하는 이미지", 1)
+	insert("필드경계앞", "", "필드경계뒤", "", .01)
+	percent := insert("100%", "", "본문", "", .01)
+	tagID := uuid.New()
+	exec(`INSERT INTO tags(id,name,normalized_name) VALUES($1,'고마워','고마워')`, tagID)
+	exec(`INSERT INTO meme_tags(meme_id,tag_id,source) VALUES($1,$2,'user')`, tagged, tagID)
+	for _, hybrid := range []bool{false, true} {
+		t.Run(map[bool]string{false: "keyword", true: "hybrid"}[hybrid], func(t *testing.T) {
+			app := &Server{db: db}
+			if hybrid {
+				app.embedder = searchEmbedFunc(func(context.Context, string) (embedding.Result, error) {
+					return embedding.Result{Vector: searchVector(1)}, nil
+				})
+			}
+			get := func(q string) []Meme {
+				t.Helper()
+				w := request(t, app.Handler(), "GET", "/api/memes?q="+url.QueryEscape(q)+"&limit=100", nil, nil, "")
+				mustStatus(t, w, 200)
+				var p struct {
+					Items []Meme `json:"items"`
+				}
+				if err := json.Unmarshal(w.Body.Bytes(), &p); err != nil {
+					t.Fatal(err)
+				}
+				return p.Items
+			}
+			for _, tc := range []struct {
+				q    string
+				want uuid.UUID
+			}{{"요이", yoi}, {"요 이", yoi}, {"요~이!", yoi}, {"하기싫어", space}, {"하기 싫어", space}, {"abc", fullwidth}, {"100%", percent}} {
+				t.Run(tc.q, func(t *testing.T) {
+					items := get(tc.q)
+					if len(items) == 0 || items[0].ID != tc.want {
+						t.Fatalf("expected %s first for %q; got %+v", tc.want, tc.q, items)
+					}
+					if tc.want == yoi && items[0].ExtractedText != "요~이!" {
+						t.Fatal("original OCR was changed")
+					}
+				})
+			}
+			if hybrid {
+				items := get("고마워")
+				if len(items) < 3 || items[0].ID != tagged || items[1].ID != ocr || items[2].ID != desc {
+					t.Fatalf("tag/OCR did not outrank description and semantic result: %+v", items)
+				}
+			} else {
+				for _, q := range []string{"필드경계앞필드경계뒤", "!!!", "%%%", "___", "100_", "🦒"} {
+					if items := get(q); len(items) != 0 {
+						t.Fatalf("unexpected broad match for %q: %+v", q, items)
+					}
+				}
+			}
 		})
 	}
 }
