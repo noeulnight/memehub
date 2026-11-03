@@ -69,7 +69,7 @@ func (s *Server) reserveImage(w http.ResponseWriter, r *http.Request, sess sessi
 		}
 	}
 	_, err = tx.Exec(r.Context(), `INSERT INTO memes(id,created_by,content_type,title,description,source_url,source_name,source_author,source_note,original_filename,original_object_key,mime_type,size_bytes,sha256,status,allow_duplicate)
- VALUES($1,$2,'image',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'uploading',$14)`, id, sess.UserID, in.Title, in.Description, nullable(in.SourceURL), nullable(in.SourceName), nullable(in.SourceAuthor), nullable(in.SourceNote), in.OriginalFilename, "originals/"+id.String(), in.MIMEType, in.SizeBytes, in.SHA256, in.AllowDuplicate)
+ VALUES($1,$2,'image',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'uploading',$14)`, id, sess.UserID, in.Title, in.Description, nullable(in.SourceURL), nullable(in.SourceName), nullable(in.SourceAuthor), nullable(in.SourceNote), in.OriginalFilename, "originals/"+id.String()+"."+storage.ImageExtension(in.MIMEType), in.MIMEType, in.SizeBytes, in.SHA256, in.AllowDuplicate)
 	if err != nil {
 		internal(w)
 		return
@@ -240,6 +240,7 @@ func (s *Server) completeUpload(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		key = "originals/" + id.String() + "." + storage.ImageExtension(mime)
 		thumbKey := "thumbnails/" + id.String() + ".png"
 		if e = s.store.Put(r.Context(), key, mime, data); e != nil {
 			problem(w, 502, "storage_unavailable")
@@ -267,7 +268,7 @@ func (s *Server) completeUpload(w http.ResponseWriter, r *http.Request) {
 		if s.cfg.DemoMode {
 			analysisStatus = "not_requested"
 		}
-		_, err = tx.Exec(r.Context(), `UPDATE memes SET width=$2,height=$3,thumbnail_object_key=$4,preview_object_key=$5,status='ready',analysis_status=$6,updated_at=now() WHERE id=$1`, id, width, height, thumbKey, previewKey, analysisStatus)
+		_, err = tx.Exec(r.Context(), `UPDATE memes SET width=$2,height=$3,thumbnail_object_key=$4,preview_object_key=$5,status='ready',analysis_status=$6,original_object_key=$7,updated_at=now() WHERE id=$1`, id, width, height, thumbKey, previewKey, analysisStatus, key)
 		if err != nil {
 			internal(w)
 			return
@@ -327,10 +328,6 @@ func (s *Server) media(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"original": first, "thumbnail": second})
 }
 
-func imageExtension(mime string) string {
-	return map[string]string{"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}[mime]
-}
-
 // Public image URLs never expose storage credentials or signed URLs.
 func (s *Server) originalMedia(w http.ResponseWriter, r *http.Request) {
 	s.publicImage(w, r, false)
@@ -356,7 +353,7 @@ func (s *Server) publicImage(w http.ResponseWriter, r *http.Request, thumbnail b
 		internal(w)
 		return
 	}
-	if extension := r.PathValue("extension"); extension != "" && extension != imageExtension(mime) {
+	if extension := r.PathValue("extension"); extension != "" && extension != storage.ImageExtension(mime) {
 		problem(w, 404, "meme_not_found")
 		return
 	}

@@ -8,6 +8,7 @@
     "build": "go build -o ../../dist/api ./cmd/api",
     "check": "go vet ./...",
     "test": "go test -race ./...",
-    "migrate": "go run ./cmd/migrate -env-file ../../.env"
+    "migrate": "go run ./cmd/migrate -env-file ../../.env",
+    "migrate:media": "go run ./cmd/migrate-media -env-file ../../.env"
   }
 }

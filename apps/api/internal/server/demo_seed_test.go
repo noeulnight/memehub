@@ -47,7 +47,7 @@ func TestDemoSamples(t *testing.T) {
 		if meme.Status != "ready" || meme.AnalysisStatus != "not_requested" || len(meme.Tags) < 2 || meme.CreatedByUsername == nil || *meme.CreatedByUsername != "demo" || meme.ExtractedText == "" {
 			t.Fatalf("invalid sample: %+v", meme)
 		}
-		for _, key := range []string{"originals/" + id.String(), "thumbnails/" + id.String() + ".png"} {
+		for _, key := range []string{"originals/" + id.String() + ".png", "thumbnails/" + id.String() + ".png"} {
 			data, err := os.ReadFile(filepath.Join(cfg.DemoDataDir, key))
 			if err != nil {
 				t.Fatal(err)

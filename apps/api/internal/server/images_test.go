@@ -127,6 +127,14 @@ func TestImageLifecycle(t *testing.T) {
 	if err = json.Unmarshal(created.Body.Bytes(), &reservation); err != nil {
 		t.Fatal(err)
 	}
+	var reservedKey string
+	if err = pool.QueryRow(context.Background(), "SELECT original_object_key FROM memes WHERE id=$1", reservation.ID).Scan(&reservedKey); err != nil || reservedKey != "originals/"+reservation.ID.String()+".png" {
+		t.Fatal("new reservation must have a PNG extension", reservedKey, err)
+	}
+	// Simulate an upload reserved before the extension rollout.
+	if _, err = pool.Exec(context.Background(), "UPDATE memes SET original_object_key=$2 WHERE id=$1", reservation.ID, "originals/"+reservation.ID.String()); err != nil {
+		t.Fatal(err)
+	}
 	path := "/api/memes/" + reservation.ID.String()
 	mustStatus(t, request(t, h, "GET", path+"/media", nil, nil, ""), 404)
 	mustStatus(t, request(t, h, "GET", path+"/file", nil, nil, ""), 404)
@@ -180,6 +188,10 @@ func TestImageLifecycle(t *testing.T) {
 	}
 	put(data)
 	mustStatus(t, request(t, h, "POST", path+"/upload-completion", nil, cookies, csrf), 200)
+	if err = pool.QueryRow(context.Background(), "SELECT original_object_key FROM memes WHERE id=$1", reservation.ID).Scan(&reservedKey); err != nil || reservedKey != "originals/"+reservation.ID.String()+".png" {
+		t.Fatal("old reservation must complete with a PNG extension", reservedKey, err)
+	}
+
 	pendingPath := "/api/memes/" + pendingMeme.ID.String()
 	mustStatus(t, request(t, h, "POST", pendingPath+"/upload-completion", nil, cookies, csrf), 409)
 	mustStatus(t, request(t, h, "POST", pendingPath+"/upload-completion", map[string]bool{"allow_duplicate": true}, cookies, csrf), 200)
@@ -332,6 +344,9 @@ func TestGIFCompletionPublishesAnimatedPreview(t *testing.T) {
 	var staticKey, previewKey, originalKey string
 	if err = pool.QueryRow(context.Background(), "SELECT thumbnail_object_key,preview_object_key,original_object_key FROM memes WHERE id=$1", reservation.ID).Scan(&staticKey, &previewKey, &originalKey); err != nil {
 		t.Fatal(err)
+	}
+	if originalKey != "originals/"+reservation.ID+".gif" {
+		t.Fatal("original GIF extension missing", originalKey)
 	}
 	if staticKey == previewKey || !strings.HasSuffix(previewKey, ".webp") {
 		t.Fatal("static analysis image must remain separate")

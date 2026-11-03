@@ -70,7 +70,7 @@ func TestDemoLocalImageLifecycle(t *testing.T) {
 	if err := json.Unmarshal(completed.Body.Bytes(), &meme); err != nil || meme.Status != "ready" || meme.AnalysisStatus != "not_requested" {
 		t.Fatalf("unexpected image: %s", completed.Body.String())
 	}
-	disk, err := os.ReadFile(filepath.Join(cfg.DemoDataDir, "originals", meme.ID.String()))
+	disk, err := os.ReadFile(filepath.Join(cfg.DemoDataDir, "originals", meme.ID.String()+".png"))
 	if err != nil || !bytes.Equal(disk, data) {
 		t.Fatal("original not persisted to local data directory", err)
 	}
