@@ -34,6 +34,8 @@ tags:
     description: OIDC login and service sessions.
   - name: Memes
     description: Shared library and author-owned changes.
+  - name: Collections
+    description: Private user-owned collections of shared memes.
   - name: Uploads
     description: Image reservations, verified completion, and temporary media access.
   - name: Tags
@@ -42,6 +44,181 @@ tags:
     description: Planned administrator-only OpenAI analysis operations.
 security: []
 paths:
+  /collections:
+    get:
+      operationId: listCollections
+      tags: [Collections]
+      summary: List the authenticated user's collections
+      description: Orders by created_at DESC, id DESC. Counts and contains_meme exclude deleted or unready memes. Administrators can only access their own collections.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: meme_id
+          in: query
+          description: Optional meme whose membership is returned as contains_meme on each collection.
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Private collection page.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Collection' }
+                  next_cursor: { type: [string, 'null'] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      operationId: createCollection
+      tags: [Collections]
+      summary: Create a collection, optionally saving a meme atomically
+      description: The owner comes from the session. Names are trimmed, NFC-normalized, limited to 100 Unicode characters, and unique per user. Blank names and control characters are rejected. An optional meme_id must reference a ready, non-deleted shared meme; failure creates no collection.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 100 }
+                meme_id: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Collection created, with a Location header pointing to its detail endpoint.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Collection' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Origin or CSRF validation failed. }
+        '404': { description: Meme is absent, deleted, or not ready. }
+        '409': { description: collection_name_exists. }
+        '415': { description: application_json_required. }
+        '422': { description: invalid_collection_name. }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /collections/{collectionID}:
+    parameters:
+      - name: collectionID
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      operationId: getCollection
+      tags: [Collections]
+      summary: Read an owned collection and its visible meme count
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Collection metadata. contains_meme is false without membership context.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Collection' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: Collection does not exist or belongs to another user. }
+        '500': { $ref: '#/components/responses/InternalError' }
+    put:
+      operationId: renameCollection
+      tags: [Collections]
+      summary: Rename an owned collection
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 100 }
+      responses:
+        '204': { description: Collection renamed. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Origin or CSRF validation failed. }
+        '404': { description: Collection does not exist or belongs to another user. }
+        '409': { description: collection_name_exists. }
+        '415': { description: application_json_required. }
+        '422': { description: invalid_collection_name. }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      operationId: deleteCollection
+      tags: [Collections]
+      summary: Delete an owned collection and its memberships, preserving original memes
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '204': { description: Collection deleted. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Origin or CSRF validation failed. }
+        '404': { description: Collection does not exist or belongs to another user. }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /collections/{collectionID}/memes/{id}:
+    parameters:
+      - name: collectionID
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      operationId: saveCollectionMeme
+      tags: [Collections]
+      summary: Idempotently save a ready shared meme to an owned collection
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '204': { description: Meme saved, or already saved. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Origin or CSRF validation failed. }
+        '404': { description: Collection is absent or not owned, or meme is absent, deleted, or not ready. }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      operationId: removeCollectionMeme
+      tags: [Collections]
+      summary: Idempotently remove a meme from an owned collection
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '204': { description: Membership removed, or already absent. Original meme is preserved. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Origin or CSRF validation failed. }
+        '404': { description: Collection does not exist or belongs to another user. }
+        '500': { $ref: '#/components/responses/InternalError' }
   /health/live:
     get:
       operationId: getLiveness
@@ -235,6 +412,10 @@ paths:
           schema:
             type: boolean
             default: false
+        - name: collection
+          in: query
+          description: Filter to a collection owned by the authenticated user. Requires login; returns 404 for missing or other users' collections. Combines with all existing filters and uses the same meme creation order and cursor.
+          schema: { type: string, format: uuid }
         - name: q
           in: query
           description:
@@ -1136,6 +1317,16 @@ components:
               value:
                 error: invalid_csrf_token
   schemas:
+    Collection:
+      type: object
+      required: [id, name, created_at, updated_at, meme_count, contains_meme]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        meme_count: { type: integer, format: int64, minimum: 0 }
+        contains_meme: { type: boolean }
     Error:
       type: object
       additionalProperties: false

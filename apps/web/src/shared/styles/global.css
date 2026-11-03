@@ -286,6 +286,9 @@ button:disabled {
 .meme-options > button:nth-child(3) {
   animation-delay: 70ms;
 }
+.meme-options > button:nth-child(4) {
+  animation-delay: 105ms;
+}
 @keyframes meme-options-reveal {
   from {
     opacity: 0;

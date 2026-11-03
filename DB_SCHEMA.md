@@ -13,11 +13,22 @@
 
 ## Table Relationships
 
+User collections are implemented by `20261102150000_collections.sql`:
+
+- `collections(id uuid PK, user_id uuid FK users ON DELETE CASCADE, name text, created_at timestamptz, updated_at timestamptz)`. Names contain 1–100 Unicode characters, are trimmed and NFC-normalized by the server, and are unique per owner. The owner comes from the authenticated session.
+- `collection_memes(collection_id uuid FK collections ON DELETE CASCADE, meme_id uuid FK memes ON DELETE CASCADE, created_at timestamptz)` uses `(collection_id, meme_id)` as its primary key. A meme can belong to multiple collections, and saving never changes the original author or creates another image object.
+- Only the owner may list, inspect, rename, delete, or change a collection, including when the caller is an administrator. Mutations reuse session, Origin, and CSRF validation. Removing a collection or membership does not delete the meme.
+- List and membership counts include only ready, non-deleted memes. Soft-deleted originals disappear from collections immediately; image cleanup retains its existing behavior. Collections are private; their original memes remain part of the shared library.
+- Indexes cover `(user_id, created_at DESC, id DESC)` and reverse membership lookup by `meme_id`. Collection lists and filtered meme lists use cursor pagination. `GET /api/memes?collection=<uuid>` combines collection ownership with existing search, tag, author, and content-type filters.
+
 The diagram shows key fields and relationships. The tables below define the complete fields and constraints. `PK` means primary key; `FK` means foreign key.
 
 ```mermaid
 erDiagram
     users ||--o{ memes : "creates"
+    users ||--o{ collections : "owns"
+    collections ||--o{ collection_memes : "contains"
+    memes ||--o{ collection_memes : "saved in"
     memes ||--o{ meme_tags : "has tag associations"
     tags ||--o{ meme_tags : "labels memes"
     memes ||--o{ jobs : "has asynchronous jobs"
@@ -27,6 +38,20 @@ erDiagram
         text oidc_issuer "OIDC issuer"
         text oidc_subject "Subject within the issuer"
         text display_name
+    }
+
+    collections {
+        uuid id PK
+        uuid user_id FK
+        text name "Unique per owner"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    collection_memes {
+        uuid collection_id PK, FK
+        uuid meme_id PK, FK
+        timestamptz created_at
     }
 
     memes {

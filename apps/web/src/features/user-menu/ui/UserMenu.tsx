@@ -2,7 +2,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getSession, logoutSession } from '../../../entities/session';
 import { apiError, endpoint, useApi } from '../../../shared/api/client';
 import { Button } from '../../../shared/ui/button';
-import { LoginIcon, LogoutIcon, UserIcon, SettingsIcon } from '../../../shared/ui/icons';
+import {
+  LoginIcon,
+  LogoutIcon,
+  UserIcon,
+  SettingsIcon,
+  CollectionIcon,
+} from '../../../shared/ui/icons';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,9 +21,13 @@ export function UserMenu({
   mine,
   onMineChange,
   onSettings,
+  onCollections,
+  inCollection,
 }: {
   mine: boolean;
   onSettings: () => void;
+  onCollections: () => void;
+  inCollection: boolean;
   onMineChange: (mine: boolean) => void;
 }) {
   const api = useApi();
@@ -25,7 +35,17 @@ export function UserMenu({
   const session = useQuery({ queryKey: ['session'], queryFn: () => getSession(api) });
   const logout = useMutation({
     mutationFn: () => logoutSession(api),
-    onSuccess: () => {
+    onSuccess: async () => {
+      await cache.cancelQueries({
+        predicate: (query) =>
+          query.queryKey[0] === 'collections' ||
+          (query.queryKey[0] === 'memes' && !!query.queryKey[5]),
+      });
+      cache.removeQueries({
+        predicate: (query) =>
+          query.queryKey[0] === 'collections' ||
+          (query.queryKey[0] === 'memes' && !!query.queryKey[5]),
+      });
       cache.setQueryData(['session'], null);
       onMineChange(false);
     },
@@ -72,7 +92,7 @@ export function UserMenu({
               )}
               <DropdownMenuItem
                 onSelect={() => onMineChange(false)}
-                aria-current={!mine ? 'true' : undefined}
+                aria-current={!mine && !inCollection ? 'true' : undefined}
               >
                 All memes
               </DropdownMenuItem>
@@ -81,6 +101,12 @@ export function UserMenu({
                 aria-current={mine ? 'true' : undefined}
               >
                 My memes
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={onCollections}
+                aria-current={inCollection ? 'true' : undefined}
+              >
+                <CollectionIcon aria-hidden="true" /> My collections
               </DropdownMenuItem>
               {session.data.is_admin && (
                 <DropdownMenuItem onSelect={onSettings}>

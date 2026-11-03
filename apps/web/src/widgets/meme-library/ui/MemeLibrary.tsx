@@ -19,10 +19,15 @@ import { SearchDock } from '../../../features/search-memes';
 import { UserMenu } from '../../../features/user-menu';
 import { AdminSettings } from '../../admin-settings';
 import { UploadMeme } from '../../../features/upload-meme';
+import { getCollection, type Collection } from '../../../entities/collection';
+import { MyCollections, SaveToCollection } from '../../../features/manage-collections';
 export function MemeLibrary() {
   const api = useApi();
   const session = useQuery({ queryKey: ['session'], queryFn: () => getSession(api) });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [collectionsOpen, setCollectionsOpen] = useState(false);
+  const [saveMemeId, setSaveMemeId] = useState('');
+  const [collectionId, setCollectionId] = useState('');
   const [sharedID, setSharedID] = useState('');
   const sharedMeme = useQuery({
     queryKey: ['memes', 'detail', sharedID],
@@ -40,25 +45,62 @@ export function MemeLibrary() {
     setQuery(params.get('q') || '');
     setTag(params.get('tag') || '');
     setMine(params.get('mine') === 'true');
+    setCollectionId(params.get('collection') || '');
     const kind = params.get('content_type');
     if (kind === 'image' || kind === 'text') setFilter(kind);
   }, []);
-  const collection = useMemeList(query, filter, tag, mine, session.data?.id || '');
+  useEffect(() => {
+    if (session.isSuccess && !session.data) {
+      setMine(false);
+      setCollectionId('');
+      setCollectionsOpen(false);
+      setSaveMemeId('');
+      const url = new URL(window.location.href);
+      url.searchParams.delete('mine');
+      url.searchParams.delete('collection');
+      window.history.replaceState(null, '', url);
+    } else if (session.data) {
+      const pendingMeme = sessionStorage.getItem('memehub.pendingCollectionMeme');
+      if (pendingMeme) {
+        sessionStorage.removeItem('memehub.pendingCollectionMeme');
+        setSaveMemeId(pendingMeme);
+      }
+    }
+  }, [session.isSuccess, session.data?.id]);
+  const selectedCollection = useQuery({
+    queryKey: ['collections', session.data?.id || '', 'detail', collectionId],
+    queryFn: ({ signal }) => getCollection(api, collectionId, signal),
+    enabled: !!collectionId && !!session.data,
+  });
+  const collection = useMemeList(query, filter, tag, mine, session.data?.id || '', collectionId);
   const items = collection.data?.pages.flatMap((page) => page.items) || [];
-  const loading = collection.isPending;
+  const loadError =
+    collection.error ||
+    (collectionId && selectedCollection.error) ||
+    ((mine || collectionId) && session.error);
+  const loading = collection.isPending && !loadError;
   const loadingMore = collection.isFetchingNextPage;
   const cursor = collection.hasNextPage;
-  const error = collection.error ? apiError(collection.error) : '';
-  function updateSearch(value: string, kind: ContentFilter, selectedTag = '', onlyMine = mine) {
+  const error = loadError ? apiError(loadError) : '';
+  function updateSearch(
+    value: string,
+    kind: ContentFilter,
+    selectedTag = '',
+    onlyMine = mine,
+    savedCollection = collectionId,
+  ) {
     const normalized = value.trim();
     const own = onlyMine && !/^@\S+/.test(normalized);
     setMine(own);
     setQuery(normalized);
     setTag(selectedTag);
     setFilter(kind);
+    setCollectionId(savedCollection);
     const url = new URL(window.location.href);
     if (own) url.searchParams.set('mine', 'true');
     else url.searchParams.delete('mine');
+    if (savedCollection) url.searchParams.set('collection', savedCollection);
+    else url.searchParams.delete('collection');
     if (selectedTag) url.searchParams.set('tag', selectedTag);
     else url.searchParams.delete('tag');
     if (normalized) url.searchParams.set('q', normalized);
@@ -66,6 +108,10 @@ export function MemeLibrary() {
     if (kind) url.searchParams.set('content_type', kind);
     else url.searchParams.delete('content_type');
     window.history.replaceState(null, '', url);
+  }
+  function openCollection(selected: Collection) {
+    updateSearch('', '', '', false, selected.id);
+    setCollectionsOpen(false);
   }
 
   return (
@@ -89,6 +135,7 @@ export function MemeLibrary() {
           meme={sharedMeme.data}
           index={0}
           detailOnly
+          onSave={() => setSaveMemeId(sharedMeme.data!.id)}
           onClose={() => {
             setSharedID('');
             const url = new URL(window.location.href);
@@ -111,6 +158,19 @@ export function MemeLibrary() {
         />
       )}
       <main id="main" className="relative z-0 px-4 pb-32 pt-4 sm:px-6 sm:pt-6">
+        {collectionId && (
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="mb-1 text-xs text-muted-foreground">My collections</p>
+              <h1 className="break-words text-lg font-semibold">
+                {selectedCollection.data?.name || 'Collection'}
+              </h1>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => setCollectionsOpen(true)}>
+              My collections
+            </Button>
+          </div>
+        )}
         <div aria-live="polite" aria-busy={loading}>
           {loading ? (
             <div className="meme-grid" role="status" aria-label="Loading memes">
@@ -136,6 +196,7 @@ export function MemeLibrary() {
                   key={meme.id}
                   meme={meme}
                   index={i}
+                  onSave={() => setSaveMemeId(meme.id)}
                   analysis={
                     session.data?.is_admin ? (
                       <ManageAnalysis meme={meme} hideCompleted />
@@ -153,7 +214,11 @@ export function MemeLibrary() {
             </Masonry>
           ) : (
             !error && (
-              <p className="py-12 text-center text-sm text-muted-foreground">No memes found.</p>
+              <p className="py-12 text-center text-sm text-muted-foreground">
+                {collectionId
+                  ? 'No memes found in this collection. Save memes using the bookmark button.'
+                  : 'No memes found.'}
+              </p>
             )
           )}
           {error && (
@@ -165,9 +230,14 @@ export function MemeLibrary() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() =>
-                  items.length ? void collection.fetchNextPage() : void collection.refetch()
-                }
+                onClick={() => {
+                  if ((mine || collectionId) && !session.data) void session.refetch();
+                  else {
+                    if (collectionId) void selectedCollection.refetch();
+                    if (collection.isFetchNextPageError) void collection.fetchNextPage();
+                    else void collection.refetch();
+                  }
+                }}
               >
                 Try again
               </Button>
@@ -187,15 +257,36 @@ export function MemeLibrary() {
       {session.data?.is_admin && (
         <AdminSettings open={settingsOpen} onOpenChange={setSettingsOpen} />
       )}
+      {saveMemeId && (
+        <SaveToCollection
+          key={`${session.data?.id || ''}:${saveMemeId}`}
+          memeId={saveMemeId}
+          onClose={() => setSaveMemeId('')}
+        />
+      )}
+      {collectionsOpen && session.data && (
+        <MyCollections
+          key={session.data.id}
+          userId={session.data.id}
+          onClose={() => setCollectionsOpen(false)}
+          onSelect={openCollection}
+          onDeleted={(id) => {
+            if (collectionId === id) updateSearch('', '', '', false, '');
+          }}
+        />
+      )}
       <div className="search-dock fixed left-1/2 z-20 flex w-[calc(100%_-_32px)] max-w-[468px] -translate-x-1/2 items-center gap-2">
-        {mine && (
+        {(mine || collectionId) && (
           <Button
             variant="secondary"
             size="xs"
-            className="absolute bottom-full left-0 mb-2 rounded-full"
-            onClick={() => updateSearch(query, filter, tag, false)}
+            className="absolute bottom-full left-0 mb-2 max-w-full rounded-full"
+            onClick={() => updateSearch(query, filter, tag, false, '')}
           >
-            My memes <CloseIcon aria-hidden="true" />
+            <span className="truncate">
+              {collectionId ? selectedCollection.data?.name || 'Collection' : 'My memes'}
+            </span>{' '}
+            <CloseIcon aria-hidden="true" />
           </Button>
         )}
         <SearchDock
@@ -210,8 +301,12 @@ export function MemeLibrary() {
         <UploadMeme />
         <UserMenu
           onSettings={() => setSettingsOpen(true)}
+          onCollections={() => setCollectionsOpen(true)}
+          inCollection={!!collectionId}
           mine={mine}
-          onMineChange={(own) => updateSearch(query.startsWith('@') ? '' : query, filter, tag, own)}
+          onMineChange={(own) =>
+            updateSearch(query.startsWith('@') ? '' : query, filter, tag, own, '')
+          }
         />
       </div>
     </div>

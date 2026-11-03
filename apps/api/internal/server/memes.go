@@ -365,6 +365,29 @@ func (s *Server) listMemesFiltered(w http.ResponseWriter, r *http.Request, analy
 		}
 		mine = &sess.UserID
 	}
+	var savedCollection *uuid.UUID
+	var collectionOwner uuid.UUID
+	if raw := query.Get("collection"); raw != "" {
+		sess, ok := s.authenticate(w, r, false)
+		if !ok {
+			return
+		}
+		id, err := uuid.Parse(raw)
+		if err != nil || id == uuid.Nil {
+			problem(w, 400, "invalid_collection_id")
+			return
+		}
+		var exists bool
+		if err = s.db.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM collections WHERE id=$1 AND user_id=$2)", id, sess.UserID).Scan(&exists); err != nil {
+			internal(w)
+			return
+		}
+		if !exists {
+			problem(w, 404, "collection_not_found")
+			return
+		}
+		savedCollection, collectionOwner = &id, sess.UserID
+	}
 	q := query.Get("q")
 	if !utf8.ValidString(q) || strings.ContainsRune(q, 0) || utf8.RuneCountInString(q) > 200 {
 		problem(w, 400, "invalid_query")
@@ -410,7 +433,9 @@ func (s *Server) listMemesFiltered(w http.ResponseWriter, r *http.Request, analy
  AND ($7='' OR EXISTS(SELECT 1 FROM users u WHERE u.id=m.created_by AND u.oidc_issuer=$8 AND lower(u.username)=lower($7)))
  AND ($9::uuid IS NULL OR m.created_by=$9)
  AND ($10='' OR m.analysis_status=$10)
- ORDER BY m.created_at DESC,m.id DESC LIMIT $6`, pattern, contentType, tags, at, id, limit+1, username, s.cfg.OIDCIssuer, mine, analysisStatus)
+	 AND ($11::uuid IS NULL OR EXISTS(SELECT 1 FROM collection_memes cm JOIN collections c ON c.id=cm.collection_id
+	     WHERE cm.meme_id=m.id AND c.id=$11 AND c.user_id=$12))
+	 ORDER BY m.created_at DESC,m.id DESC LIMIT $6`, pattern, contentType, tags, at, id, limit+1, username, s.cfg.OIDCIssuer, mine, analysisStatus, savedCollection, collectionOwner)
 	if err != nil {
 		internal(w)
 		return

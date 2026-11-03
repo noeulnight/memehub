@@ -3,6 +3,7 @@
 Memehub stores and searches image and text memes.
 OpenAI models generate descriptions and tags. Users can also record original sources.
 Users sign in through OIDC to create memes and can edit or delete their own submissions.
+Signed-in users can save shared memes to private named collections. Desktop cards follow the shared hover preview, click-to-copy, and hold-for-options interactions; their options menu includes saving to a collection. Mobile image controls and meme details also open the collection picker, which supports creating a collection and saving in one step. The account menu opens My collections for browsing, searching, renaming, and deleting collections. Collection removal preserves original memes; deleted originals are excluded from saved collections.
 
 ## Technology Stack
 

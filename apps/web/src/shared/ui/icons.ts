@@ -18,4 +18,7 @@ export {
   HiOutlineCheck as CheckIcon,
   HiOutlineChevronRight as ChevronRightIcon,
   HiCheckCircle as CircleIcon,
+  HiOutlineBookmark as BookmarkIcon,
+  HiOutlineCollection as CollectionIcon,
+  HiOutlineDotsHorizontal as MoreIcon,
 } from 'react-icons/hi';

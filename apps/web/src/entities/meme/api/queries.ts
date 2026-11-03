@@ -12,6 +12,7 @@ export async function listMemes(
   signal?: AbortSignal,
   tag = '',
   mine = false,
+  collectionId = '',
 ): Promise<MemePage> {
   const search = parseMemeSearch(query);
   const { data } = await api.get<MemePage>('memes', {
@@ -23,6 +24,7 @@ export async function listMemes(
       q: search.text || undefined,
       uploader: search.uploader || undefined,
       mine: mine || undefined,
+      collection: collectionId || undefined,
       content_type: filter || undefined,
       cursor: cursor || undefined,
     },
@@ -40,12 +42,15 @@ export function useMemeList(
   tag = '',
   mine = false,
   userId = '',
+  collectionId = '',
 ) {
   const api = useApi();
   return useInfiniteQuery({
-    queryKey: ['memes', query, filter, tag, mine, mine ? userId : ''],
+    queryKey: ['memes', query, filter, tag, mine, mine || collectionId ? userId : '', collectionId],
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam, signal }) => listMemes(api, query, filter, pageParam, signal, tag, mine),
+    queryFn: ({ pageParam, signal }) =>
+      listMemes(api, query, filter, pageParam, signal, tag, mine, collectionId),
+    enabled: !(mine || collectionId) || !!userId,
     getNextPageParam: (page) => page.next_cursor ?? undefined,
     refetchInterval: (query) =>
       query.state.data?.pages.some((page) =>

@@ -118,6 +118,26 @@ pnpm dev
 Unlike the demo command, `pnpm dev` does not start the database or apply migrations.
 The API runs with `go run`; restart it after changing Go code.
 
+### Collection schema migration
+
+Before deploying the collection-enabled API, configure the target database's
+`DATABASE_URL` in `.env` and run from the repository root:
+
+```sh
+pnpm db:migrate
+```
+
+This applies pending Goose migrations, including
+`20261102150000_collections.sql`, which creates `collections` and
+`collection_memes` with their ownership constraints and indexes. Existing users,
+memes, and image files are preserved. Apply the migration **before** starting the
+new API; the API does not automatically migrate its database.
+
+For demo mode, `pnpm dev:demo` applies migrations automatically. When starting the
+demo services separately, run `pnpm --filter @memehub/api run migrate:demo` first;
+this uses `.env.demo` and demo defaults. Run the migration command again safely
+after a restart: already applied migrations are skipped.
+
 ### Key environment variables
 
 See [`.env.example`](.env.example) for the full list and example values.
