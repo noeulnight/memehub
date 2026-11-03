@@ -104,6 +104,42 @@ describe('meme queries', () => {
 });
 
 describe('media URL lifetime', () => {
+  it('keeps public URLs without expiry across focus and elapsed time', async () => {
+    vi.useFakeTimers();
+    const api = createApi('/api');
+    let calls = 0;
+    api.defaults.adapter = async (config) => {
+      calls++;
+      const image = { url: 'https://s3.example.test/memes/originals/cat.gif' };
+      return {
+        config,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        data: { original: image, thumbnail: image },
+      };
+    };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.mount();
+    const observer = new QueryObserver(client, memeMediaOptions(api, 'public-image'));
+    const unsubscribe = observer.subscribe(() => {});
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(observer.getCurrentResult().isSuccess).toBe(true);
+      await vi.advanceTimersByTimeAsync(3_600_000);
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(calls).toBe(1);
+    } finally {
+      unsubscribe();
+      client.unmount();
+      client.clear();
+      focusManager.setFocused(undefined);
+      vi.useRealTimers();
+    }
+  });
+
   it('reuses valid URLs on focus and remount, then refreshes before expiry', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-11-02T03:00:00Z'));

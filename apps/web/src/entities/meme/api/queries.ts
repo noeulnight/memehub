@@ -61,8 +61,8 @@ export function useMemeList(
   });
 }
 export type Media = {
-  original: { url: string; expires_at: string };
-  thumbnail: { url: string; expires_at: string };
+  original: { url: string; expires_at?: string };
+  thumbnail: { url: string; expires_at?: string };
 };
 export async function getMedia(
   api: AxiosInstance,
@@ -74,7 +74,7 @@ export async function getMedia(
     if (
       !item ||
       !['http:', 'https:'].includes(new URL(item.url).protocol) ||
-      !Number.isFinite(Date.parse(item.expires_at))
+      (item.expires_at !== undefined && !Number.isFinite(Date.parse(item.expires_at)))
     )
       throw new Error('Invalid image URL');
   }
@@ -86,7 +86,7 @@ export function memeMediaOptions(api: AxiosInstance, id: string) {
     queryFn: ({ signal }) => getMedia(api, id, signal),
     staleTime: (query) => Math.max(0, mediaRefreshAt(query.state.data) - query.state.dataUpdatedAt),
     refetchInterval: (query) => {
-      return query.state.data
+      return query.state.data && Number.isFinite(mediaRefreshAt(query.state.data))
         ? Math.max(1_000, mediaRefreshAt(query.state.data) - Date.now())
         : false;
     },
@@ -95,8 +95,11 @@ export function memeMediaOptions(api: AxiosInstance, id: string) {
 
 function mediaRefreshAt(media: Media | undefined) {
   return media
-    ? Math.min(Date.parse(media.original.expires_at), Date.parse(media.thumbnail.expires_at)) -
-        30_000
+    ? Math.min(
+        ...[media.original, media.thumbnail].map((item) =>
+          item.expires_at ? Date.parse(item.expires_at) : Infinity,
+        ),
+      ) - 30_000
     : 0;
 }
 
