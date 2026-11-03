@@ -911,17 +911,17 @@ paths:
       operationId: getMemeMedia
       tags:
         - Uploads
-      summary: Get temporary original and thumbnail URLs
+      summary: Get public original and thumbnail URLs
       description:
         Public only for ready, non-deleted image memes. Otherwise return 404. Never expose the
         staging object. The browser uses these URLs for display or download; image clipboard access
-        depends on browser support and storage CORS. Previously issued signed URLs expire at
-        expires_at and are not instantly revoked by soft deletion.
+        depends on browser support and storage CORS. Public S3 URLs have no signature or expiry. Soft-deleted objects remain directly
+        readable until retention cleanup removes them. Demo storage uses expiring signed URLs.
       x-implementation-status: implemented
       security: []
       responses:
         '200':
-          description: Temporary read URLs.
+          description: Public read URLs (signed only in demo mode).
           content:
             application/json:
               schema:
@@ -1929,12 +1929,11 @@ components:
               - tags
           minItems: 1
           uniqueItems: true
-    SignedMedia:
+    MediaURL:
       type: object
       additionalProperties: false
       required:
         - url
-        - expires_at
       properties:
         url:
           type: string
@@ -1950,10 +1949,10 @@ components:
         - thumbnail
       properties:
         original:
-          $ref: '#/components/schemas/SignedMedia'
+          $ref: '#/components/schemas/MediaURL'
         thumbnail:
           anyOf:
-            - $ref: '#/components/schemas/SignedMedia'
+            - $ref: '#/components/schemas/MediaURL'
             - type: 'null'
     Tag:
       type: object

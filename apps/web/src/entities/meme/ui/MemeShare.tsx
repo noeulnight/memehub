@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Meme } from '../model/types';
+import { getMedia } from '../api/queries';
 import { memeShareURLs } from '../model/share';
 import { useApi } from '../../../shared/api/client';
 import { Button } from '../../../shared/ui/button';
@@ -56,7 +57,8 @@ export function MemeShare({
         api.defaults.baseURL || '/api',
         meme.mime_type,
       );
-      await navigator.clipboard.writeText(urls[kind]);
+      const target = kind === 'media' ? (await getMedia(api, meme.id)).original.url : urls.detail;
+      await navigator.clipboard.writeText(target);
       setCopied(kind);
     } catch {
       setFailed(true);

@@ -3,7 +3,11 @@ package storage
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"io/fs"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -13,15 +17,20 @@ import (
 )
 
 type Store struct {
-	local  *localStore
-	client *s3.Client
-	signer *s3.PresignClient
-	bucket string
-	ttl    time.Duration
+	local      *localStore
+	client     *s3.Client
+	signer     *s3.PresignClient
+	bucket     string
+	ttl        time.Duration
+	publicBase string
 }
 type SignedURL struct {
 	URL       string    `json:"url"`
 	ExpiresAt time.Time `json:"expires_at"`
+}
+type MediaURL struct {
+	URL       string     `json:"url"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 type Upload struct {
 	URL       string            `json:"url"`
@@ -37,7 +46,13 @@ func New(c config.Config) *Store {
 	cfg := aws.Config{RequestChecksumCalculation: aws.RequestChecksumCalculationWhenRequired, Region: c.S3Region, Credentials: credentials.NewStaticCredentialsProvider(c.S3AccessKey, c.S3SecretKey, "")}
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) { o.BaseEndpoint = aws.String(c.S3Endpoint); o.UsePathStyle = c.S3PathStyle })
 	public := s3.NewFromConfig(cfg, func(o *s3.Options) { o.BaseEndpoint = aws.String(c.S3PresignEndpoint); o.UsePathStyle = c.S3PathStyle })
-	return &Store{client: client, signer: s3.NewPresignClient(public), bucket: c.S3Bucket, ttl: c.S3TTL}
+	base, _ := url.Parse(c.S3PresignEndpoint)
+	if c.S3PathStyle {
+		base.Path = strings.TrimRight(base.Path, "/") + "/" + c.S3Bucket
+	} else {
+		base.Host = c.S3Bucket + "." + base.Host
+	}
+	return &Store{publicBase: strings.TrimRight(base.String(), "/"), client: client, signer: s3.NewPresignClient(public), bucket: c.S3Bucket, ttl: c.S3TTL}
 }
 func (s *Store) UploadURL(ctx context.Context, key, mime string, size int64) (Upload, error) {
 	if s.local != nil {
@@ -79,13 +94,17 @@ func (s *Store) Delete(ctx context.Context, key string) error {
 	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key)})
 	return err
 }
-func (s *Store) ReadURL(ctx context.Context, key string) (SignedURL, error) {
+func (s *Store) ReadURL(ctx context.Context, key string) (MediaURL, error) {
+	if !fs.ValidPath(key) || !(strings.HasPrefix(key, "originals/") || strings.HasPrefix(key, "thumbnails/") || strings.HasPrefix(key, "previews/")) {
+		return MediaURL{}, fmt.Errorf("invalid public storage key")
+	}
 	if s.local != nil {
-		return s.local.signedURL("GET", key, "", 0)
+		signed, err := s.local.signedURL("GET", key, "", 0)
+		return MediaURL{URL: signed.URL, ExpiresAt: &signed.ExpiresAt}, err
 	}
-	out, err := s.signer.PresignGetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key)}, func(o *s3.PresignOptions) { o.Expires = s.ttl })
+	target, err := url.JoinPath(s.publicBase, key)
 	if err != nil {
-		return SignedURL{}, err
+		return MediaURL{}, err
 	}
-	return SignedURL{URL: out.URL, ExpiresAt: time.Now().Add(s.ttl)}, nil
+	return MediaURL{URL: target}, nil
 }
