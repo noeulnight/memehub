@@ -21,10 +21,13 @@ export function MemeShare({
   const [copied, setCopied] = useState<'media' | 'detail' | null>(null);
   const [failed, setFailed] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(() => () => {
-    clearTimeout(closeTimer.current);
-    onOpenChange?.(false);
-  }, [onOpenChange]);
+  useEffect(
+    () => () => {
+      clearTimeout(closeTimer.current);
+      onOpenChange?.(false);
+    },
+    [onOpenChange],
+  );
 
   function changeOpen(open: boolean) {
     clearTimeout(closeTimer.current);
@@ -51,6 +54,7 @@ export function MemeShare({
         meme.id,
         import.meta.env.PUBLIC_APP_BASE_URL || window.location.origin,
         api.defaults.baseURL || '/api',
+        meme.mime_type,
       );
       await navigator.clipboard.writeText(urls[kind]);
       setCopied(kind);

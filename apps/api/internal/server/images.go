@@ -327,6 +327,10 @@ func (s *Server) media(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"original": first, "thumbnail": second})
 }
 
+func imageExtension(mime string) string {
+	return map[string]string{"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}[mime]
+}
+
 // Public image URLs never expose storage credentials or signed URLs.
 func (s *Server) originalMedia(w http.ResponseWriter, r *http.Request) {
 	s.publicImage(w, r, false)
@@ -350,6 +354,10 @@ func (s *Server) publicImage(w http.ResponseWriter, r *http.Request, thumbnail b
 	}
 	if err != nil {
 		internal(w)
+		return
+	}
+	if extension := r.PathValue("extension"); extension != "" && extension != imageExtension(mime) {
+		problem(w, 404, "meme_not_found")
 		return
 	}
 	etag := `"` + hash + `"`
