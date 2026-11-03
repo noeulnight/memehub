@@ -6,6 +6,7 @@ export type Meme = {
   created_by_username: string | null;
   created_by_name: string | null;
   created_at: string;
+  mime_type?: string | null;
   content_type: 'text' | 'image';
   analysis_status: 'not_requested' | 'queued' | 'processing' | 'completed' | 'failed';
   width?: number | null;

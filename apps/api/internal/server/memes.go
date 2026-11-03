@@ -37,6 +37,7 @@ type memeInput struct {
 	Revision         *int64   `json:"content_revision"`
 }
 type Meme struct {
+	MIMEType          *string   `json:"mime_type"`
 	ID                uuid.UUID `json:"id"`
 	CreatedBy         uuid.UUID `json:"created_by"`
 	CreatedByName     *string   `json:"created_by_name"`
@@ -63,11 +64,11 @@ type Meme struct {
 const memeColumns = `m.id,m.created_by,m.content_type,m.title,m.body_text,m.description,m.extracted_text,m.source_url,m.source_name,m.source_author,m.source_note,m.status,m.analysis_status,m.content_revision,m.created_at,m.updated_at,
  ARRAY(SELECT t.name FROM tags t JOIN meme_tags mt ON mt.tag_id=t.id WHERE mt.meme_id=m.id ORDER BY t.normalized_name),
  (SELECT u.display_name FROM users u WHERE u.id=m.created_by),
- (SELECT u.username FROM users u WHERE u.id=m.created_by),m.width,m.height`
+ (SELECT u.username FROM users u WHERE u.id=m.created_by),m.width,m.height,m.mime_type`
 
 func scanMeme(row pgx.Row) (Meme, error) {
 	var m Meme
-	err := row.Scan(&m.ID, &m.CreatedBy, &m.ContentType, &m.Title, &m.BodyText, &m.Description, &m.ExtractedText, &m.SourceURL, &m.SourceName, &m.SourceAuthor, &m.SourceNote, &m.Status, &m.AnalysisStatus, &m.Revision, &m.CreatedAt, &m.UpdatedAt, &m.Tags, &m.CreatedByName, &m.CreatedByUsername, &m.Width, &m.Height)
+	err := row.Scan(&m.ID, &m.CreatedBy, &m.ContentType, &m.Title, &m.BodyText, &m.Description, &m.ExtractedText, &m.SourceURL, &m.SourceName, &m.SourceAuthor, &m.SourceNote, &m.Status, &m.AnalysisStatus, &m.Revision, &m.CreatedAt, &m.UpdatedAt, &m.Tags, &m.CreatedByName, &m.CreatedByUsername, &m.Width, &m.Height, &m.MIMEType)
 	return m, err
 }
 func nullable(value string) *string {

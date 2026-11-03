@@ -16,7 +16,7 @@ export function metadata(appBase: string, apiBase: string, meme?: Meme) {
   const home = new URL(appBase);
   home.search = '';
   home.hash = '';
-  const urls = meme ? memeShareURLs(meme.id, home.href, apiBase) : null;
+  const urls = meme ? memeShareURLs(meme.id, home.href, apiBase, meme.mime_type) : null;
   let imageWidth = meme?.content_type === 'image' ? meme.width : 1200;
   let imageHeight = meme?.content_type === 'image' ? meme.height : 630;
   if (

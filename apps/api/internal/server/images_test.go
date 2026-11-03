@@ -430,8 +430,21 @@ func TestPublicImageCacheAndStaticOG(t *testing.T) {
 		return w
 	}
 	base := "/api/memes/" + id.String()
+	detail := get("GET", base, "")
+	mustStatus(t, detail, 200)
+	var meme Meme
+	if err := json.Unmarshal(detail.Body.Bytes(), &meme); err != nil || meme.MIMEType == nil || *meme.MIMEType != "image/gif" {
+		t.Fatal("share links need the stored MIME type", err)
+	}
+	for _, extension := range []string{"jpg", "png", "webp"} {
+		wrong := get("GET", base+"/file."+extension, "*")
+		mustStatus(t, wrong, 404)
+		if wrong.Header().Get("Cache-Control") != "no-store" {
+			t.Fatal("incorrect extension is cacheable")
+		}
+	}
 	var originalTag string
-	for _, suffix := range []string{"/file", "/og.png"} {
+	for index, suffix := range []string{"/file", "/file.gif", "/og.png"} {
 		path := base + suffix
 		head := get("HEAD", path, "")
 		mustStatus(t, head, 200)
@@ -441,7 +454,7 @@ func TestPublicImageCacheAndStaticOG(t *testing.T) {
 		mu.Lock()
 		n := reads
 		mu.Unlock()
-		if n != map[string]int{"/file": 0, "/og.png": 1}[suffix] {
+		if n != index {
 			t.Fatal("HEAD read storage", n)
 		}
 		res := get("GET", path, "")
@@ -450,7 +463,7 @@ func TestPublicImageCacheAndStaticOG(t *testing.T) {
 		if tag == "" || tag != head.Header().Get("ETag") || res.Header().Get("Cache-Control") != "public, max-age=60, must-revalidate" {
 			t.Fatal("missing cache policy or unstable validator")
 		}
-		if suffix == "/file" {
+		if suffix == "/file" || suffix == "/file.gif" {
 			originalTag = tag
 			if !bytes.Equal(res.Body.Bytes(), original) || res.Header().Get("Content-Type") != "image/gif" {
 				t.Fatal("original GIF changed")
@@ -474,7 +487,7 @@ func TestPublicImageCacheAndStaticOG(t *testing.T) {
 		mu.Lock()
 		n = reads
 		mu.Unlock()
-		if n != map[string]int{"/file": 1, "/og.png": 2}[suffix] {
+		if n != index+1 {
 			t.Fatal("conditional requests read storage", n)
 		}
 	}
@@ -488,7 +501,7 @@ func TestPublicImageCacheAndStaticOG(t *testing.T) {
 		t.Fatal("storage failure is cacheable")
 	}
 	execSQL(`UPDATE memes SET deleted_at=now() WHERE id=$1`, id)
-	for _, suffix := range []string{"/file", "/og.png"} {
+	for _, suffix := range []string{"/file", "/file.gif", "/og.png"} {
 		missing := get("GET", base+suffix, "*")
 		mustStatus(t, missing, 404)
 		if missing.Header().Get("Cache-Control") != "no-store" {
