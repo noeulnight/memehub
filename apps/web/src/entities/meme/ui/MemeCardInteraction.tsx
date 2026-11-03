@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { Meme } from '../model/types';
 import { getMedia } from '../api/queries';
@@ -18,6 +18,7 @@ export function MemeCardInteraction({
   onSave,
   optionsTarget,
   hovered,
+  onOptionsChange,
 }: {
   meme: Meme;
   children: ReactNode;
@@ -25,17 +26,59 @@ export function MemeCardInteraction({
   onSave: () => void;
   optionsTarget?: HTMLDivElement | null;
   hovered: boolean;
+  onOptionsChange?: (open: boolean) => void;
 }) {
   const api = useApi();
   const desktop = useDesktopHover();
+  const tooltipId = useId();
+  const tooltip = useRef<HTMLParagraphElement>(null);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [optionsClosing, setOptionsClosing] = useState(false);
+  const [shareMenuOpen, setShareMenuOpen] = useState(false);
   const [status, setStatus] = useState<'idle' | 'copying' | 'copied' | 'failed'>('idle');
   const [feedback, setFeedback] = useState(0);
   const container = useRef<HTMLDivElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const start = useRef<{ x: number; y: number } | undefined>(undefined);
   const suppressClick = useRef(false);
+
+  useLayoutEffect(() => {
+    onOptionsChange?.(desktop && optionsOpen && !optionsClosing);
+  }, [desktop, optionsOpen, optionsClosing, onOptionsChange]);
+
+  useLayoutEffect(() => {
+    const target = container.current;
+    const tip = tooltip.current;
+    if (!desktop || !hovered || !target || !tip) return;
+    const position = () => {
+      const rect = target.getBoundingClientRect();
+      const scale = Math.max(
+        1,
+        Math.min(1.5, (innerWidth - 32) / rect.width, (innerHeight - 32) / rect.height),
+      );
+      const width = rect.width * scale;
+      const height = rect.height * scale;
+      const left = Math.max(
+        16,
+        Math.min(rect.left + (rect.width - width) / 2, innerWidth - width - 16),
+      );
+      const top = Math.max(
+        16,
+        Math.min(rect.top + (rect.height - height) / 2, innerHeight - height - 16),
+      );
+      const x = Math.max(
+        16 + tip.offsetWidth / 2,
+        Math.min(left + width / 2, innerWidth - 16 - tip.offsetWidth / 2),
+      );
+      const y = Math.max(12, Math.min(top + height + 8, innerHeight - tip.offsetHeight - 12));
+      tip.style.left = `${x}px`;
+      tip.style.top = `${y}px`;
+    };
+    position();
+    const observer = new ResizeObserver(position);
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [desktop, hovered]);
 
   function cancelPress() {
     clearTimeout(timer.current);
@@ -148,7 +191,7 @@ export function MemeCardInteraction({
         >
           <DetailsIcon aria-hidden="true" />
         </Button>
-        <MemeShare meme={meme} />
+        <MemeShare meme={meme} onOpenChange={setShareMenuOpen} />
         <MemeSave
           onSave={() => {
             changeOptions(false);
@@ -167,7 +210,7 @@ export function MemeCardInteraction({
     >
       <span className="meme-copy-label text-sm">Copied!</span>
     </div>
-  ) : optionsOpen ? (
+  ) : optionsOpen || shareMenuOpen ? (
     options
   ) : null;
 
@@ -238,9 +281,10 @@ export function MemeCardInteraction({
       <button
         type="button"
         className="relative block w-full select-none text-left outline-none focus-visible:ring-2 focus-visible:ring-ring [-webkit-touch-callout:none]"
-        aria-label={`Copy ${meme.content_type}: ${meme.title || 'Meme'}. Hold for options.`}
+        aria-label={`Copy ${meme.content_type}: ${meme.title || 'Meme'}`}
+        aria-describedby={tooltipId}
+        data-meme-copy-trigger=""
         aria-busy={status === 'copying'}
-        title="Click to copy · Hold for options"
         onPointerDown={(event) => {
           if (event.button !== 0 || !event.isPrimary) return;
           event.currentTarget.focus({ preventScroll: true });
@@ -308,6 +352,18 @@ export function MemeCardInteraction({
           </span>
         )}
       </button>
+      {createPortal(
+        <p
+          ref={tooltip}
+          id={tooltipId}
+          role="tooltip"
+          data-visible={hovered}
+          className="meme-hover-tooltip"
+        >
+          Click to copy · Hold for options
+        </p>,
+        document.body,
+      )}
       {overlay && optionsTarget && createPortal(overlay, optionsTarget)}
     </div>
   );

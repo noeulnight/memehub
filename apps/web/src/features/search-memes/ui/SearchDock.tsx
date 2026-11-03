@@ -92,16 +92,13 @@ export function SearchDock({
       }}
       className="relative min-w-0 flex-1 rounded-full border border-border bg-muted/95 px-4 py-1.5 backdrop-blur-xl"
     >
-      <label htmlFor="meme-search" className="sr-only">
-        Search memes
-      </label>
       <Command
+        label="Search memes"
         shouldFilter={false}
         loop
         className="overflow-visible rounded-none bg-transparent [&_[data-slot=command-input-wrapper]]:h-8 [&_[data-slot=command-input-wrapper]]:border-0 [&_[data-slot=command-input-wrapper]]:px-0 [&_[data-slot=command-input-wrapper]>svg]:hidden"
       >
         <CommandInput
-          id="meme-search"
           ref={searchInput}
           value={draft}
           maxLength={200}

@@ -157,7 +157,7 @@ export function MemeLibrary() {
           }
         />
       )}
-      <main id="main" className="px-4 pb-32 pt-4 sm:px-6 sm:pt-6">
+      <main id="main" className="relative z-0 px-4 pb-32 pt-4 sm:px-6 sm:pt-6">
         {collectionId && (
           <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">

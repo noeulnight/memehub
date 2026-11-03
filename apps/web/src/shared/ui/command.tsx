@@ -13,10 +13,11 @@ import {
   DialogTitle,
 } from '@/shared/ui/dialog';
 
-function Command({ className, ...props }: React.ComponentProps<typeof CommandPrimitive>) {
+function Command({ className, label = 'Commands', ...props }: React.ComponentProps<typeof CommandPrimitive>) {
   return (
     <CommandPrimitive
       data-slot="command"
+      label={label}
       className={cn(
         'flex h-full w-full flex-col overflow-hidden rounded-md bg-popover text-popover-foreground',
         className,
