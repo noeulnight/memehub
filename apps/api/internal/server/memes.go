@@ -405,6 +405,11 @@ func (s *Server) listMemesFiltered(w http.ResponseWriter, r *http.Request, analy
 		}
 		tags = append(tags, normalizeTag(tag))
 	}
+	args := []any{contentType, tags, username, s.cfg.OIDCIssuer, mine, analysisStatus, savedCollection, collectionOwner}
+	if strings.TrimSpace(q) != "" && s.embedder != nil {
+		s.searchMemes(w, r, strings.TrimSpace(q), limit, args)
+		return
+	}
 	var at *time.Time
 	var id *uuid.UUID
 	if raw := query.Get("cursor"); raw != "" {
@@ -422,20 +427,10 @@ func (s *Server) listMemesFiltered(w http.ResponseWriter, r *http.Request, analy
 		id = &c.ID
 	}
 	pattern := "%" + strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(q) + "%"
-	rows, err := s.db.Query(r.Context(), "SELECT "+memeColumns+` FROM memes m
- WHERE m.deleted_at IS NULL AND m.status='ready'
- AND ($2='' OR m.content_type=$2)
- AND (concat_ws(' ',m.title,m.body_text,m.description,m.extracted_text,m.source_name,m.source_author) ILIKE $1
-      OR EXISTS(SELECT 1 FROM meme_tags mt JOIN tags t ON t.id=mt.tag_id WHERE mt.meme_id=m.id AND t.name ILIKE $1))
- AND NOT EXISTS(SELECT 1 FROM unnest($3::text[]) wanted(name) WHERE NOT EXISTS(
-     SELECT 1 FROM meme_tags mt JOIN tags t ON t.id=mt.tag_id WHERE mt.meme_id=m.id AND t.normalized_name=wanted.name))
- AND ($4::timestamptz IS NULL OR (m.created_at,m.id)<($4,$5::uuid))
- AND ($7='' OR EXISTS(SELECT 1 FROM users u WHERE u.id=m.created_by AND u.oidc_issuer=$8 AND lower(u.username)=lower($7)))
- AND ($9::uuid IS NULL OR m.created_by=$9)
- AND ($10='' OR m.analysis_status=$10)
-	 AND ($11::uuid IS NULL OR EXISTS(SELECT 1 FROM collection_memes cm JOIN collections c ON c.id=cm.collection_id
-	     WHERE cm.meme_id=m.id AND c.id=$11 AND c.user_id=$12))
-	 ORDER BY m.created_at DESC,m.id DESC LIMIT $6`, pattern, contentType, tags, at, id, limit+1, username, s.cfg.OIDCIssuer, mine, analysisStatus, savedCollection, collectionOwner)
+	rows, err := s.db.Query(r.Context(), "SELECT "+memeColumns+" FROM memes m WHERE "+memeScopeSQL+`
+ AND (`+memeTextSQL+`)
+ AND ($10::timestamptz IS NULL OR (m.created_at,m.id)<($10,$11::uuid))
+ ORDER BY m.created_at DESC,m.id DESC LIMIT $12`, append(args, pattern, at, id, limit+1)...)
 	if err != nil {
 		internal(w)
 		return

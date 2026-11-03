@@ -21,6 +21,7 @@ type Config struct {
 	CookieSecure                                                                bool
 	TextMaxLength                                                               int
 	OpenAIModel                                                                 string
+	VectorSearchEnabled                                                         bool
 	OpenAIAPIKey                                                                string
 	OpenAITimeout                                                               time.Duration
 	WorkerConcurrency                                                           int
@@ -119,6 +120,18 @@ func Parse(get func(string) string) (Config, error) {
 		return c, fmt.Errorf("OPENAI_MODEL is required to queue analysis jobs")
 	}
 	c.OpenAIAPIKey = get("OPENAI_API_KEY")
+	if raw := get("VECTOR_SEARCH_ENABLED"); raw != "" {
+		c.VectorSearchEnabled, err = strconv.ParseBool(raw)
+		if err != nil {
+			return c, fmt.Errorf("VECTOR_SEARCH_ENABLED must be a boolean")
+		}
+	}
+	if demo {
+		c.VectorSearchEnabled = false
+	}
+	if c.VectorSearchEnabled && c.OpenAIAPIKey == "" {
+		return c, fmt.Errorf("VECTOR_SEARCH_ENABLED requires OPENAI_API_KEY")
+	}
 	c.OpenAITimeout = 120 * time.Second
 	if raw := get("OPENAI_TIMEOUT_SECONDS"); raw != "" {
 		seconds, e := strconv.Atoi(raw)

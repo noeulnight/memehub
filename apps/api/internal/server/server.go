@@ -13,11 +13,13 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/noeulnight/memehub/apps/api/internal/config"
+	"github.com/noeulnight/memehub/apps/api/internal/embedding"
 	"github.com/noeulnight/memehub/apps/api/internal/storage"
 	"golang.org/x/oauth2"
 )
 
 type Server struct {
+	embedder embedding.Embedder
 	store    *storage.Store
 	cfg      config.Config
 	db       *pgxpool.Pool
@@ -43,7 +45,11 @@ func New(ctx context.Context, cfg config.Config, db *pgxpool.Pool) (*Server, err
 	if err != nil {
 		return nil, errors.New("OIDC discovery failed")
 	}
-	return &Server{store: storage.New(cfg), cfg: cfg, db: db, oauth: oauth2.Config{ClientID: cfg.OIDCClientID, ClientSecret: cfg.OIDCClientSecret, Endpoint: provider.Endpoint(), RedirectURL: cfg.OIDCRedirectURL, Scopes: []string{oidc.ScopeOpenID, "profile"}}, verifier: provider.VerifierContext(oidc.ClientContext(ctx, client), &oidc.Config{ClientID: cfg.OIDCClientID}), client: client}, nil
+	var embedder embedding.Embedder
+	if cfg.VectorSearchEnabled {
+		embedder = embedding.NewQueryCache(embedding.NewClient(cfg.OpenAIAPIKey))
+	}
+	return &Server{embedder: embedder, store: storage.New(cfg), cfg: cfg, db: db, oauth: oauth2.Config{ClientID: cfg.OIDCClientID, ClientSecret: cfg.OIDCClientSecret, Endpoint: provider.Endpoint(), RedirectURL: cfg.OIDCRedirectURL, Scopes: []string{oidc.ScopeOpenID, "profile"}}, verifier: provider.VerifierContext(oidc.ClientContext(ctx, client), &oidc.Config{ClientID: cfg.OIDCClientID}), client: client}, nil
 }
 
 func (s *Server) Handler() http.Handler {
