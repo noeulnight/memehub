@@ -230,36 +230,42 @@ export function MemeCardInteraction({
     return (
       <div className="relative">
         {children}
-        <div className="absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-end gap-1 bg-gradient-to-t from-black/80 to-transparent p-2 pt-6">
-          <Button
-            type="button"
-            variant="secondary"
-            size="icon-sm"
-            aria-label={status === 'copied' ? 'Image copied' : 'Copy image'}
-            title="Copy image (animated images copy as still images)"
-            disabled={status === 'copying'}
-            onClick={() => void copy()}
+        <div className="absolute inset-x-0 bottom-0 flex flex-col items-end gap-1 bg-gradient-to-t from-black/80 to-transparent p-1.5 pt-6">
+          <div
+            role="group"
+            aria-label="Meme actions"
+            className="grid w-full max-w-[140px] grid-cols-4 gap-1 [&>button]:aspect-square [&>button]:h-auto [&>button]:w-full"
           >
-            {status === 'copying' ? (
-              <LoadingIcon className="animate-spin" aria-hidden="true" />
-            ) : status === 'copied' ? (
-              <CheckIcon aria-hidden="true" />
-            ) : (
-              <CopyIcon aria-hidden="true" />
-            )}
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            size="icon-sm"
-            aria-label={`View details: ${meme.title || 'Image'}`}
-            title="View details"
-            onClick={onDetails}
-          >
-            <DetailsIcon aria-hidden="true" />
-          </Button>
-          <MemeShare meme={meme} />
-          <MemeSave onSave={onSave} />
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon-sm"
+              aria-label={status === 'copied' ? 'Image copied' : 'Copy image'}
+              title="Copy image (animated images copy as still images)"
+              disabled={status === 'copying'}
+              onClick={() => void copy()}
+            >
+              {status === 'copying' ? (
+                <LoadingIcon className="animate-spin" aria-hidden="true" />
+              ) : status === 'copied' ? (
+                <CheckIcon aria-hidden="true" />
+              ) : (
+                <CopyIcon aria-hidden="true" />
+              )}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon-sm"
+              aria-label={`View details: ${meme.title || 'Image'}`}
+              title="View details"
+              onClick={onDetails}
+            >
+              <DetailsIcon aria-hidden="true" />
+            </Button>
+            <MemeShare meme={meme} />
+            <MemeSave onSave={onSave} />
+          </div>
           {status === 'failed' && (
             <span role="alert" className="w-full text-right text-xs text-white">
               Could not copy. Try again.

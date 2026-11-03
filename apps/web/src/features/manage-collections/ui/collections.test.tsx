@@ -172,7 +172,7 @@ describe('collection interactions', () => {
     expect(window.location.search).toContain('collection=favorites');
   });
 
-  it('adds a fourth image action and keeps it separate from opening meme details', async () => {
+  it('keeps all four mobile image actions available without a hold gesture', async () => {
     const api = createApi('/api');
     api.defaults.adapter = async (config) => ({
       config,
@@ -208,7 +208,29 @@ describe('collection interactions', () => {
       />,
       api,
     );
-    const actions = document.querySelector('article')!;
+    const actions = document.querySelector('article [role="group"][aria-label="Meme actions"]')!;
+    expect(actions.querySelectorAll('button')).toHaveLength(4);
+    vi.useFakeTimers();
+    await act(async () => {
+      actions.parentElement!.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          bubbles: true,
+          pointerType: 'touch',
+          button: 0,
+          isPrimary: true,
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(600);
+      actions.parentElement!.dispatchEvent(
+        new PointerEvent('pointerup', {
+          bubbles: true,
+          pointerType: 'touch',
+          button: 0,
+          isPrimary: true,
+        }),
+      );
+    });
+    expect(document.querySelector('[aria-label="Meme options"]')).toBeNull();
     expect(actions.querySelectorAll('button')).toHaveLength(4);
     await click(actions.querySelector('[aria-label="Add to collection"]'));
     expect(save).toHaveBeenCalledOnce();
