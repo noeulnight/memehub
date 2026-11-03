@@ -108,3 +108,7 @@ func (s *Store) ReadURL(ctx context.Context, key string) (MediaURL, error) {
 	}
 	return MediaURL{URL: target}, nil
 }
+
+func ImageExtension(mime string) string {
+	return map[string]string{"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}[mime]
+}

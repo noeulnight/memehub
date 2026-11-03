@@ -74,7 +74,7 @@ func (s *Server) SeedDemo(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		originalKey, thumbnailKey := "originals/"+id.String(), "thumbnails/"+id.String()+".png"
+		originalKey, thumbnailKey := "originals/"+id.String()+".png", "thumbnails/"+id.String()+".png"
 		if err := s.store.Put(ctx, originalKey, "image/png", data); err != nil {
 			return err
 		}
