@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Meme } from '../model/types';
 import { memeShareURLs } from '../model/share';
 import { useApi } from '../../../shared/api/client';
@@ -10,10 +10,31 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from '../../../shared/ui/dropdown-menu';
-export function MemeShare({ meme }: { meme: Meme }) {
+export function MemeShare({
+  meme,
+  onOpenChange,
+}: {
+  meme: Meme;
+  onOpenChange?: (open: boolean) => void;
+}) {
   const api = useApi();
   const [copied, setCopied] = useState<'media' | 'detail' | null>(null);
   const [failed, setFailed] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => {
+    clearTimeout(closeTimer.current);
+    onOpenChange?.(false);
+  }, [onOpenChange]);
+
+  function changeOpen(open: boolean) {
+    clearTimeout(closeTimer.current);
+    if (open) {
+      onOpenChange?.(true);
+    } else {
+      // Keep the owning toolbar mounted until Radix finishes its exit animation.
+      closeTimer.current = setTimeout(() => onOpenChange?.(false), 200);
+    }
+  }
   useEffect(() => {
     if (!copied && !failed) return;
     const timer = window.setTimeout(() => {
@@ -42,7 +63,7 @@ export function MemeShare({ meme }: { meme: Meme }) {
   const label = (kind: 'media' | 'detail') =>
     kind === 'media' ? 'Copy media URL' : 'Copy detail URL';
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={changeOpen}>
       <DropdownMenuTrigger asChild>
         <Button
           type="button"
@@ -54,12 +75,15 @@ export function MemeShare({ meme }: { meme: Meme }) {
           {copied ? <CheckIcon aria-hidden="true" /> : <LinkIcon aria-hidden="true" />}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent side="top" align="end">
+      <DropdownMenuContent
+        side="top"
+        align="end"
+        className="data-[state=closed]:duration-180 data-[state=closed]:ease-out"
+      >
         {kinds.map((kind) => (
           <DropdownMenuItem
             key={kind}
-            onSelect={(e) => {
-              e.preventDefault();
+            onSelect={() => {
               void copy(kind);
             }}
           >

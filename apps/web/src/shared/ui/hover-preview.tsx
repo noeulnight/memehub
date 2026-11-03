@@ -4,7 +4,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type PointerEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactElement,
   type Ref,
 } from 'react';
@@ -16,11 +16,13 @@ export function HoverPreview({
   disabled = false,
   actionsRef,
   onHoverChange,
+  expandedHitArea = false,
 }: {
   children: ReactElement;
   disabled?: boolean;
   actionsRef?: Ref<HTMLDivElement>;
   onHoverChange?: (hovered: boolean) => void;
+  expandedHitArea?: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
   const [pressed, setPressed] = useState(false);
@@ -50,18 +52,37 @@ export function HoverPreview({
 
   useEffect(() => {
     if (!active) return;
+    const dismiss = close;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close();
+      if (event.key === 'Escape') dismiss();
     };
-    window.addEventListener('resize', close);
-    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', dismiss);
+    window.addEventListener('scroll', dismiss, true);
     window.addEventListener('keydown', onKeyDown);
     return () => {
-      window.removeEventListener('resize', close);
-      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', dismiss);
+      window.removeEventListener('scroll', dismiss, true);
       window.removeEventListener('keydown', onKeyDown);
     };
   }, [active, close]);
+
+  useEffect(() => {
+    if (!active || !expandedHitArea) return;
+    const track = (event: PointerEvent) => {
+      if (event.pointerType !== 'mouse') return;
+      const rect = anchor.current?.querySelector('.meme-visual')?.getBoundingClientRect();
+      if (
+        rect &&
+        (event.clientX < rect.left ||
+          event.clientX > rect.right ||
+          event.clientY < rect.top ||
+          event.clientY > rect.bottom)
+      )
+        close();
+    };
+    window.addEventListener('pointermove', track);
+    return () => window.removeEventListener('pointermove', track);
+  }, [active, expandedHitArea, close]);
 
   useLayoutEffect(() => {
     const target = anchor.current;
@@ -94,11 +115,18 @@ export function HoverPreview({
     if (visual) animatePress(visual, { dim: active });
   };
 
-  function syncHover(event: PointerEvent<HTMLDivElement>) {
-    if (event.pointerType !== 'mouse' || disabled || !window.matchMedia(desktopHover).matches) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const inside = event.clientX >= rect.left && event.clientX <= rect.right &&
-      event.clientY >= rect.top && event.clientY <= rect.bottom;
+  function syncHover(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType !== 'mouse' || disabled || !window.matchMedia(desktopHover).matches)
+      return;
+    const rect = expandedHitArea
+      ? (event.currentTarget.querySelector('.meme-visual')?.getBoundingClientRect() ??
+        event.currentTarget.getBoundingClientRect())
+      : event.currentTarget.getBoundingClientRect();
+    const inside =
+      event.clientX >= rect.left &&
+      event.clientX <= rect.right &&
+      event.clientY >= rect.top &&
+      event.clientY <= rect.bottom;
     if (inside) {
       if (!active) {
         setClosing(false);
@@ -114,15 +142,33 @@ export function HoverPreview({
       ref={anchor}
       data-hovered={active}
       data-pressed={pressed}
+      data-options-visible={expandedHitArea}
       className={`meme-hover relative min-w-0 ${active ? 'z-40' : closing ? 'z-30' : ''}`}
       onPointerEnter={syncHover}
       onPointerMoveCapture={syncHover}
-      onPointerLeave={close}
+      onPointerLeave={(event) => {
+        setPressed(false);
+        const rect = expandedHitArea
+          ? event.currentTarget.querySelector('.meme-visual')?.getBoundingClientRect()
+          : undefined;
+        if (
+          rect &&
+          event.clientX >= rect.left &&
+          event.clientX <= rect.right &&
+          event.clientY >= rect.top &&
+          event.clientY <= rect.bottom
+        )
+          return;
+        close();
+      }}
       onPointerDownCapture={(event) => {
         if (event.button === 0 && window.matchMedia(desktopHover).matches) setPressed(true);
       }}
       onPointerUpCapture={() => setPressed(false)}
-      onPointerCancelCapture={close}
+      onPointerCancelCapture={() => {
+        setPressed(false);
+        close();
+      }}
       onClickCapture={press}
       onKeyDownCapture={(event) => {
         if (!event.repeat && (event.key === 'Enter' || event.key === ' ')) press();

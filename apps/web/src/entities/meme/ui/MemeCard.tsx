@@ -15,7 +15,15 @@ import { MemeSave } from './MemeSave';
 import { Skeleton } from '../../../shared/ui/skeleton';
 import { HoverPreview } from '../../../shared/ui/hover-preview';
 
-function ImagePreview({ meme, full = false }: { meme: Meme; full?: boolean }) {
+function ImagePreview({
+  meme,
+  full = false,
+  eager = false,
+}: {
+  meme: Meme;
+  full?: boolean;
+  eager?: boolean;
+}) {
   const media = useMemeMedia(meme.id);
   const [failedSrc, setFailedSrc] = useState<string>();
   const [loadedSrc, setLoadedSrc] = useState<string>();
@@ -47,7 +55,7 @@ function ImagePreview({ meme, full = false }: { meme: Meme; full?: boolean }) {
         <img
           src={src}
           alt={meme.title || meme.description || 'Saved meme'}
-          loading={full ? 'eager' : 'lazy'}
+          loading={full || eager ? 'eager' : 'lazy'}
           decoding="async"
           width={meme.width ?? undefined}
           height={meme.height ?? undefined}
@@ -98,6 +106,7 @@ export function MemeCard({
   const [busy, setBusy] = useState(false);
   const [actionsTarget, setActionsTarget] = useState<HTMLDivElement | null>(null);
   const [hovered, setHovered] = useState(false);
+  const [optionsVisible, setOptionsVisible] = useState(false);
   useEffect(() => {
     if (!open) return;
     const previous = document.title;
@@ -206,7 +215,12 @@ export function MemeCard({
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
       {!detailOnly && (
-        <HoverPreview disabled={open} actionsRef={setActionsTarget} onHoverChange={setHovered}>
+        <HoverPreview
+          disabled={open}
+          actionsRef={setActionsTarget}
+          onHoverChange={setHovered}
+          expandedHitArea={optionsVisible}
+        >
           <article
             className="meme-card min-w-0"
             style={{ animationDelay: `${Math.min(index, 8) * 25}ms` }}
@@ -217,10 +231,11 @@ export function MemeCard({
               onSave={onSave}
               optionsTarget={actionsTarget}
               hovered={hovered}
+              onOptionsChange={setOptionsVisible}
             >
               <div className="meme-visual pointer-events-none bg-background">
                 {meme.content_type === 'image' ? (
-                  <ImagePreview meme={meme} />
+                  <ImagePreview meme={meme} eager={index < 24} />
                 ) : (
                   <p className="line-clamp-6 whitespace-pre-wrap break-words text-sm leading-snug">
                     {meme.body_text}
