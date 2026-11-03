@@ -327,16 +327,23 @@ func (s *Server) media(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"original": first, "thumbnail": second})
 }
 
-// originalMedia is a stable public URL; storage credentials and signed URLs stay private.
+// Public image URLs never expose storage credentials or signed URLs.
 func (s *Server) originalMedia(w http.ResponseWriter, r *http.Request) {
+	s.publicImage(w, r, false)
+}
+func (s *Server) ogImage(w http.ResponseWriter, r *http.Request) {
+	s.publicImage(w, r, true)
+}
+func (s *Server) publicImage(w http.ResponseWriter, r *http.Request, thumbnail bool) {
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
 		problem(w, 400, "invalid_meme_id")
 		return
 	}
-	var key, mime string
+	var key, mime, hash string
+	var thumb *string
 	var size int64
-	err = s.db.QueryRow(r.Context(), `SELECT original_object_key,mime_type,size_bytes FROM memes WHERE id=$1 AND content_type='image' AND status='ready' AND deleted_at IS NULL`, id).Scan(&key, &mime, &size)
+	err = s.db.QueryRow(r.Context(), `SELECT original_object_key,thumbnail_object_key,mime_type,size_bytes,sha256 FROM memes WHERE id=$1 AND content_type='image' AND status='ready' AND deleted_at IS NULL`, id).Scan(&key, &thumb, &mime, &size, &hash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		problem(w, 404, "meme_not_found")
 		return
@@ -345,8 +352,43 @@ func (s *Server) originalMedia(w http.ResponseWriter, r *http.Request) {
 		internal(w)
 		return
 	}
+	etag := `"` + hash + `"`
+	if thumbnail {
+		if thumb == nil || *thumb == "" {
+			problem(w, 404, "preview_not_found")
+			return
+		}
+		key = *thumb
+		mime = "image/png"
+		size = 0 // Thumbnail length is not stored; stream it without an original-file length.
+		// Bump the rendition version if thumbnail encoding changes.
+		sum := sha256.Sum256([]byte(hash + "\n" + key + "\nog-png-v1"))
+		etag = `W/"` + hex.EncodeToString(sum[:]) + `"`
+	}
 	if s.store == nil {
 		problem(w, 503, "storage_unavailable")
+		return
+	}
+	setHeaders := func() {
+		// A short freshness lifetime bounds stale copies after deletion, including at a CDN.
+		w.Header().Set("Cache-Control", "public, max-age=60, must-revalidate")
+		w.Header().Set("ETag", etag)
+		w.Header().Set("Content-Type", mime)
+		w.Header().Set("Content-Disposition", "inline")
+	}
+	for _, candidate := range strings.Split(r.Header.Get("If-None-Match"), ",") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "*" || strings.TrimPrefix(candidate, "W/") == strings.TrimPrefix(etag, "W/") {
+			setHeaders()
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+	}
+	if r.Method == http.MethodHead {
+		setHeaders()
+		if size > 0 {
+			w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+		}
 		return
 	}
 	body, err := s.store.Read(r.Context(), key)
@@ -355,10 +397,9 @@ func (s *Server) originalMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer body.Close()
-	w.Header().Set("Content-Type", mime)
-	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
-	w.Header().Set("Content-Disposition", "inline")
-	if r.Method != http.MethodHead {
-		_, _ = io.Copy(w, body)
+	setHeaders()
+	if size > 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 	}
+	_, _ = io.Copy(w, body)
 }

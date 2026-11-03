@@ -791,6 +791,78 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Origin'
         - $ref: '#/components/parameters/CSRFToken'
+  /memes/{id}/file:
+    parameters:
+      - $ref: '#/components/parameters/MemeID'
+      - name: If-None-Match
+        in: header
+        schema: { type: string }
+    get:
+      operationId: getOriginalImage
+      tags: [Uploads]
+      summary: Get the original image bytes
+      description: >-
+        Stable public URL for ready, non-deleted images. HEAD is also supported without
+        reading image bytes from storage. Matching If-None-Match returns 304 after checking
+        visibility. Successful responses use public, max-age=60, must-revalidate; cached
+        images may remain visible for 60 seconds after deletion. Errors use no-store.
+        Original GIFs remain animated; og.png always serves the existing static PNG thumbnail.
+      x-implementation-status: implemented
+      security: []
+      responses:
+        '200':
+          description: Image bytes (no body for HEAD).
+          headers:
+            ETag:
+              schema: { type: string }
+            Cache-Control:
+              schema: { type: string }
+          content:
+            'image/*':
+              schema: { type: string, format: binary }
+        '304':
+          description: Image representation has not changed. No body.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '502': { $ref: '#/components/responses/StorageUnavailable' }
+        '503': { $ref: '#/components/responses/StorageUnavailable' }
+  /memes/{id}/og.png:
+    parameters:
+      - $ref: '#/components/parameters/MemeID'
+      - name: If-None-Match
+        in: header
+        schema: { type: string }
+    get:
+      operationId: getStaticOGImage
+      tags: [Uploads]
+      summary: Get a static PNG thumbnail for link previews
+      description: >-
+        Stable public URL for ready, non-deleted images. HEAD is also supported without
+        reading image bytes from storage. Matching If-None-Match returns 304 after checking
+        visibility. Successful responses use public, max-age=60, must-revalidate; cached
+        images may remain visible for 60 seconds after deletion. Errors use no-store.
+        Original GIFs remain animated; og.png always serves the existing static PNG thumbnail.
+      x-implementation-status: implemented
+      security: []
+      responses:
+        '200':
+          description: Image bytes (no body for HEAD).
+          headers:
+            ETag:
+              schema: { type: string }
+            Cache-Control:
+              schema: { type: string }
+          content:
+            'image/png':
+              schema: { type: string, format: binary }
+        '304':
+          description: Image representation has not changed. No body.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '502': { $ref: '#/components/responses/StorageUnavailable' }
+        '503': { $ref: '#/components/responses/StorageUnavailable' }
   /memes/{id}/media:
     parameters:
       - $ref: '#/components/parameters/MemeID'

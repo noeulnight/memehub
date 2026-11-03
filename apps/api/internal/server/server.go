@@ -90,6 +90,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/memes/{id}/upload-completion", s.completeUpload)
 	mux.HandleFunc("GET /api/memes/{id}/media", s.media)
 	mux.HandleFunc("GET /api/memes/{id}/file", s.originalMedia)
+	mux.HandleFunc("GET /api/memes/{id}/og.png", s.ogImage)
 	mux.HandleFunc("GET /api/admin/memes", s.listAdminMemes)
 	mux.HandleFunc("GET /api/admin/users", s.listUsers)
 	mux.HandleFunc("GET /api/admin/settings", s.readSettings)
