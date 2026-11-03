@@ -27,15 +27,32 @@ const memeScopeSQL = `m.deleted_at IS NULL AND m.status='ready'
  AND ($6='' OR m.analysis_status=$6)
  AND ($7::uuid IS NULL OR EXISTS(SELECT 1 FROM collection_memes cm JOIN collections c ON c.id=cm.collection_id
  WHERE cm.meme_id=m.id AND c.id=$7 AND c.user_id=$8))`
+
+// Normalize each field independently so matches cannot span unrelated fields.
+const normalizedTextSQL = `search_normalize($10)<>'' AND (
+ EXISTS(SELECT 1 FROM unnest(ARRAY[m.title,m.body_text,m.description,m.extracted_text,m.source_name,m.source_author]) field(value)
+ WHERE strpos(search_normalize(field.value),search_normalize($10))>0)
+ OR EXISTS(SELECT 1 FROM meme_tags mt JOIN tags t ON t.id=mt.tag_id
+ WHERE mt.meme_id=m.id AND strpos(search_normalize(t.name),search_normalize($10))>0))`
 const memeTextSQL = `concat_ws(' ',m.title,m.body_text,m.description,m.extracted_text,m.source_name,m.source_author) ILIKE $9
- OR EXISTS(SELECT 1 FROM meme_tags mt JOIN tags t ON t.id=mt.tag_id WHERE mt.meme_id=m.id AND t.name ILIKE $9)`
+ OR EXISTS(SELECT 1 FROM meme_tags mt JOIN tags t ON t.id=mt.tag_id WHERE mt.meme_id=m.id AND t.name ILIKE $9)
+ OR (` + normalizedTextSQL + `)`
 const exactTextSQL = `lower(m.title)=lower($10) OR lower(m.extracted_text)=lower($10)
  OR EXISTS(SELECT 1 FROM meme_tags mt JOIN tags t ON t.id=mt.tag_id WHERE mt.meme_id=m.id AND lower(t.name)=lower($10))`
+const textPrioritySQL = `CASE WHEN search_normalize($10)='' THEN 0
+ WHEN search_normalize(m.extracted_text)=search_normalize($10)
+ OR EXISTS(SELECT 1 FROM meme_tags mt JOIN tags t ON t.id=mt.tag_id WHERE mt.meme_id=m.id AND search_normalize(t.name)=search_normalize($10)) THEN 4
+ WHEN strpos(search_normalize(m.extracted_text),search_normalize($10))>0
+ OR EXISTS(SELECT 1 FROM meme_tags mt JOIN tags t ON t.id=mt.tag_id WHERE mt.meme_id=m.id AND strpos(search_normalize(t.name),search_normalize($10))>0) THEN 3
+ WHEN search_normalize(m.title)=search_normalize($10) OR search_normalize(m.body_text)=search_normalize($10) THEN 2
+ WHEN strpos(search_normalize(m.title),search_normalize($10))>0 OR strpos(search_normalize(m.body_text),search_normalize($10))>0 THEN 1
+ ELSE 0 END`
 
 type rankedMeme struct {
-	id    uuid.UUID
-	score float64
-	exact bool
+	id       uuid.UUID
+	score    float64
+	exact    bool
+	priority int
 }
 type searchCursor struct {
 	Search uuid.UUID `json:"search"`
@@ -52,8 +69,8 @@ func searchScope(q string, args []any) string {
 }
 func (s *Server) candidates(ctx context.Context, q string, args []any) ([]uuid.UUID, error) {
 	pattern := "%" + strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(q) + "%"
-	rows, err := s.db.Query(ctx, `SELECT m.id,(`+exactTextSQL+`) AS exact FROM memes m WHERE `+memeScopeSQL+` AND (`+memeTextSQL+`)
- ORDER BY exact DESC,m.created_at DESC,m.id DESC LIMIT 500`, append(args, pattern, q)...)
+	rows, err := s.db.Query(ctx, `SELECT m.id,(`+exactTextSQL+`) AS exact,(`+textPrioritySQL+`) AS priority FROM memes m WHERE `+memeScopeSQL+` AND (`+memeTextSQL+`)
+ ORDER BY exact DESC,priority DESC,m.created_at DESC,m.id DESC LIMIT 500`, append(args, pattern, q)...)
 	if err != nil {
 		return nil, err
 	}
@@ -62,12 +79,13 @@ func (s *Server) candidates(ctx context.Context, q string, args []any) ([]uuid.U
 	for rows.Next() {
 		var id uuid.UUID
 		var exact bool
-		if err = rows.Scan(&id, &exact); err != nil {
+		var priority int
+		if err = rows.Scan(&id, &exact, &priority); err != nil {
 			rows.Close()
 			return nil, err
 		}
 		index++
-		ranks[id] = &rankedMeme{id: id, score: 1 / (60 + float64(index)), exact: exact}
+		ranks[id] = &rankedMeme{id: id, score: 1 / (60 + float64(index)), exact: exact, priority: priority}
 	}
 	err = rows.Err()
 	rows.Close()
@@ -120,6 +138,9 @@ func (s *Server) candidates(ctx context.Context, q string, args []any) ([]uuid.U
 		a, b := sorted[i], sorted[j]
 		if a.exact != b.exact {
 			return a.exact
+		}
+		if a.priority != b.priority {
+			return a.priority > b.priority
 		}
 		if a.score != b.score {
 			return a.score > b.score
