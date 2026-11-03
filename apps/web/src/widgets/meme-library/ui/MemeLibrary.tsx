@@ -110,7 +110,7 @@ export function MemeLibrary() {
           }
         />
       )}
-      <main id="main" className="px-4 pb-32 pt-4 sm:px-6 sm:pt-6">
+      <main id="main" className="relative z-0 px-4 pb-32 pt-4 sm:px-6 sm:pt-6">
         <div aria-live="polite" aria-busy={loading}>
           {loading ? (
             <div className="meme-grid" role="status" aria-label="Loading memes">

@@ -138,6 +138,40 @@ button:disabled {
 .meme-hover[data-hovered='true'] {
   --meme-actions-scale: var(--meme-hover-scale, 1.5);
 }
+.meme-hover[data-hovered='true'][data-options-visible='true'] [data-meme-copy-trigger]::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: auto;
+  transform: translate(var(--meme-hover-x, 0px), var(--meme-hover-y, 0px))
+    scale(var(--meme-hover-scale, 1.5));
+  transform-origin: center;
+}
+.meme-hover-tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 10;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  border-radius: 6px;
+  background: rgb(0 0 0 / 85%);
+  color: #fff;
+  padding: 5px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, -3px);
+  transition:
+    opacity 150ms ease-out,
+    transform 150ms ease-out;
+}
+.meme-hover-tooltip[data-visible='true'] {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
 .meme-visual {
   transform-origin: center;
   transform: translate(0, 0) scale(1);

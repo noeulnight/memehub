@@ -8,6 +8,9 @@
 - Docker with Docker Compose
 - `gif2webp` (from the libwebp tools package) for animated GIF previews
 
+On Arch Linux, install `libwebp-utils` (`sudo pacman -S --needed libwebp-utils`).
+The `libwebp` library package alone does not include the `gif2webp` executable.
+
 Install dependencies from the repository root:
 
 ```sh
