@@ -17,6 +17,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -365,6 +366,133 @@ func TestGIFCompletionPublishesAnimatedPreview(t *testing.T) {
 			}
 		} else if !bytes.Equal(body, data) {
 			t.Fatal("GIF original was changed")
+		}
+	}
+}
+
+func TestPublicImageCacheAndStaticOG(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	palette := color.Palette{color.Transparent, color.White}
+	frames := []*image.Paletted{image.NewPaletted(image.Rect(0, 0, 100, 50), palette), image.NewPaletted(image.Rect(0, 0, 100, 50), palette)}
+	frames[1].SetColorIndex(1, 1, 1)
+	var encoded bytes.Buffer
+	if err := gif.EncodeAll(&encoded, &gif.GIF{Image: frames, Delay: []int{10, 10}}); err != nil {
+		t.Fatal(err)
+	}
+	original := encoded.Bytes()
+	sum := sha256.Sum256(original)
+	hash := hex.EncodeToString(sum[:])
+	_, _, thumbnail, err := prepareImage(original, "image/gif", hash, int64(len(original)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	reads := 0
+	unavailable := false
+	objects := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		reads++
+		if unavailable {
+			w.WriteHeader(403)
+			return
+		}
+		data := original
+		if strings.HasSuffix(r.URL.Path, "thumb.png") {
+			data = thumbnail
+		}
+		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+		_, _ = w.Write(data)
+	}))
+	t.Cleanup(objects.Close)
+	store := storage.New(config.Config{S3Endpoint: objects.URL, S3PresignEndpoint: objects.URL, S3Region: "test", S3Bucket: "test", S3AccessKey: "test", S3SecretKey: "test"})
+	app := &Server{db: pool, store: store}
+	h := app.Handler()
+	user, id := uuid.New(), uuid.New()
+	execSQL := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	execSQL(`INSERT INTO users(id,oidc_issuer,oidc_subject) VALUES($1,'test','media-cache')`, user)
+	execSQL(`INSERT INTO memes(id,created_by,content_type,title,status,analysis_status,original_filename,original_object_key,thumbnail_object_key,mime_type,size_bytes,width,height,sha256)
+ VALUES($1,$2,'image','GIF','ready','completed','test.gif','original.gif','thumb.png','image/gif',$3,100,50,$4)`, id, user, len(original), hash)
+	get := func(method, path, validator string) *httptest.ResponseRecorder {
+		t.Helper()
+		r := httptest.NewRequest(method, path, nil)
+		if validator != "" {
+			r.Header.Set("If-None-Match", validator)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	base := "/api/memes/" + id.String()
+	var originalTag string
+	for _, suffix := range []string{"/file", "/og.png"} {
+		path := base + suffix
+		head := get("HEAD", path, "")
+		mustStatus(t, head, 200)
+		if head.Body.Len() != 0 {
+			t.Fatal("HEAD returned a body")
+		}
+		mu.Lock()
+		n := reads
+		mu.Unlock()
+		if n != map[string]int{"/file": 0, "/og.png": 1}[suffix] {
+			t.Fatal("HEAD read storage", n)
+		}
+		res := get("GET", path, "")
+		mustStatus(t, res, 200)
+		tag := res.Header().Get("ETag")
+		if tag == "" || tag != head.Header().Get("ETag") || res.Header().Get("Cache-Control") != "public, max-age=60, must-revalidate" {
+			t.Fatal("missing cache policy or unstable validator")
+		}
+		if suffix == "/file" {
+			originalTag = tag
+			if !bytes.Equal(res.Body.Bytes(), original) || res.Header().Get("Content-Type") != "image/gif" {
+				t.Fatal("original GIF changed")
+			}
+		} else {
+			if tag == originalTag || res.Header().Get("Content-Type") != "image/png" {
+				t.Fatal("preview reused original representation")
+			}
+			img, err := png.Decode(bytes.NewReader(res.Body.Bytes()))
+			if err != nil || img.Bounds().Dx() != 100 || img.Bounds().Dy() != 50 {
+				t.Fatal("invalid static PNG", err)
+			}
+		}
+		for _, validator := range []string{tag, "W/" + strings.TrimPrefix(tag, "W/"), `"other", ` + tag, "*"} {
+			cached := get("GET", path, validator)
+			mustStatus(t, cached, 304)
+			if cached.Body.Len() != 0 || cached.Header().Get("ETag") != tag {
+				t.Fatal("invalid 304")
+			}
+		}
+		mu.Lock()
+		n = reads
+		mu.Unlock()
+		if n != map[string]int{"/file": 1, "/og.png": 2}[suffix] {
+			t.Fatal("conditional requests read storage", n)
+		}
+	}
+	// Errors must not inherit the public cache policy, and deletion must win over validators.
+	mu.Lock()
+	unavailable = true
+	mu.Unlock()
+	failed := get("GET", base+"/file", `"different"`)
+	mustStatus(t, failed, 502)
+	if failed.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("storage failure is cacheable")
+	}
+	execSQL(`UPDATE memes SET deleted_at=now() WHERE id=$1`, id)
+	for _, suffix := range []string{"/file", "/og.png"} {
+		missing := get("GET", base+suffix, "*")
+		mustStatus(t, missing, 404)
+		if missing.Header().Get("Cache-Control") != "no-store" {
+			t.Fatal("deleted image is cacheable")
 		}
 	}
 }
