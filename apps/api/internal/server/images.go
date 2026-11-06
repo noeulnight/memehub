@@ -24,15 +24,15 @@ import (
 	_ "golang.org/x/image/webp"
 )
 
-func (s *Server) validateImage(in *memeInput) string {
+func (s *Server) validateMedia(in *memeInput) string {
 	if in.BodyText != "" || strings.TrimSpace(in.OriginalFilename) == "" || !utf8.ValidString(in.OriginalFilename) || utf8.RuneCountInString(in.OriginalFilename) > 255 || strings.ContainsAny(in.OriginalFilename, "\x00/\\") {
 		return "invalid_original_filename"
 	}
 	if in.SizeBytes < 1 || in.SizeBytes > s.cfg.UploadMaxBytes {
-		return "invalid_image_size"
+		return "invalid_" + in.ContentType + "_size"
 	}
-	if !slices.Contains(s.cfg.UploadAllowedMIMEs, in.MIMEType) {
-		return "unsupported_image_type"
+	if !slices.Contains(s.cfg.UploadAllowedMIMEs, in.MIMEType) || !strings.HasPrefix(in.MIMEType, in.ContentType+"/") {
+		return "unsupported_" + in.ContentType + "_type"
 	}
 	hash, err := hex.DecodeString(in.SHA256)
 	if err != nil || len(hash) != 32 || strings.ToLower(in.SHA256) != in.SHA256 {
@@ -41,7 +41,7 @@ func (s *Server) validateImage(in *memeInput) string {
 	return ""
 }
 func stagingKey(id uuid.UUID) string { return "staging/" + id.String() }
-func (s *Server) reserveImage(w http.ResponseWriter, r *http.Request, sess session, in memeInput) {
+func (s *Server) reserveMedia(w http.ResponseWriter, r *http.Request, sess session, in memeInput) {
 	if s.store == nil {
 		problem(w, 503, "storage_unavailable")
 		return
@@ -59,7 +59,7 @@ func (s *Server) reserveImage(w http.ResponseWriter, r *http.Request, sess sessi
 	}
 	defer tx.Rollback(r.Context())
 	if !in.AllowDuplicate {
-		found, e := duplicateImage(r.Context(), tx, w, in.SHA256, id)
+		found, e := duplicateMedia(r.Context(), tx, w, in.SHA256, id)
 		if e != nil {
 			internal(w)
 			return
@@ -69,7 +69,7 @@ func (s *Server) reserveImage(w http.ResponseWriter, r *http.Request, sess sessi
 		}
 	}
 	_, err = tx.Exec(r.Context(), `INSERT INTO memes(id,created_by,content_type,title,description,source_url,source_name,source_author,source_note,original_filename,original_object_key,mime_type,size_bytes,sha256,status,allow_duplicate)
- VALUES($1,$2,'image',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'uploading',$14)`, id, sess.UserID, in.Title, in.Description, nullable(in.SourceURL), nullable(in.SourceName), nullable(in.SourceAuthor), nullable(in.SourceNote), in.OriginalFilename, "originals/"+id.String()+"."+storage.ImageExtension(in.MIMEType), in.MIMEType, in.SizeBytes, in.SHA256, in.AllowDuplicate)
+ VALUES($1,$2,$15,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'uploading',$14)`, id, sess.UserID, in.Title, in.Description, nullable(in.SourceURL), nullable(in.SourceName), nullable(in.SourceAuthor), nullable(in.SourceNote), in.OriginalFilename, "originals/"+id.String()+"."+storage.MediaExtension(in.MIMEType), in.MIMEType, in.SizeBytes, in.SHA256, in.AllowDuplicate, in.ContentType)
 	if err != nil {
 		internal(w)
 		return
@@ -105,7 +105,7 @@ func (s *Server) renewUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	var state, mime string
 	var size int64
-	err = s.db.QueryRow(r.Context(), "UPDATE memes SET updated_at=now() WHERE id=$1 AND created_by=$2 AND content_type='image' AND deleted_at IS NULL AND objects_deleted_at IS NULL RETURNING status,mime_type,size_bytes", id, sess.UserID).Scan(&state, &mime, &size)
+	err = s.db.QueryRow(r.Context(), "UPDATE memes SET updated_at=now() WHERE id=$1 AND created_by=$2 AND content_type IN ('image','audio') AND deleted_at IS NULL AND objects_deleted_at IS NULL RETURNING status,mime_type,size_bytes", id, sess.UserID).Scan(&state, &mime, &size)
 	if errors.Is(err, pgx.ErrNoRows) {
 		problem(w, 404, "meme_not_found")
 		return
@@ -182,7 +182,7 @@ func (s *Server) completeUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	var state, mime, hash, key string
+	var state, mime, hash, key, contentType string
 	var size int64
 	var allowDuplicate bool
 	var input struct {
@@ -191,7 +191,7 @@ func (s *Server) completeUpload(w http.ResponseWriter, r *http.Request) {
 	if r.ContentLength != 0 && !decodeJSON(w, r, &input) {
 		return
 	}
-	err = tx.QueryRow(r.Context(), `SELECT status,mime_type,sha256,size_bytes,original_object_key,allow_duplicate FROM memes WHERE id=$1 AND created_by=$2 AND content_type='image' AND deleted_at IS NULL FOR UPDATE`, id, sess.UserID).Scan(&state, &mime, &hash, &size, &key, &allowDuplicate)
+	err = tx.QueryRow(r.Context(), `SELECT status,mime_type,sha256,size_bytes,original_object_key,allow_duplicate,content_type FROM memes WHERE id=$1 AND created_by=$2 AND content_type IN ('image','audio') AND deleted_at IS NULL FOR UPDATE`, id, sess.UserID).Scan(&state, &mime, &hash, &size, &key, &allowDuplicate, &contentType)
 	if errors.Is(err, pgx.ErrNoRows) {
 		problem(w, 404, "meme_not_found")
 		return
@@ -207,7 +207,7 @@ func (s *Server) completeUpload(w http.ResponseWriter, r *http.Request) {
 	if state == "uploading" {
 		body, e := s.store.Read(r.Context(), stagingKey(id))
 		if e != nil {
-			problem(w, 422, "uploaded_image_unavailable")
+			problem(w, 422, "uploaded_"+contentType+"_unavailable")
 			return
 		}
 		data, e := io.ReadAll(io.LimitReader(body, s.cfg.UploadMaxBytes+1))
@@ -217,13 +217,27 @@ func (s *Server) completeUpload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if int64(len(data)) > s.cfg.UploadMaxBytes {
-			problem(w, 422, "invalid_image_size")
+			problem(w, 422, "invalid_"+contentType+"_size")
 			return
 		}
-		width, height, thumbnail, e := prepareImage(data, mime, hash, size)
-		if e != nil {
-			problem(w, 422, e.Error())
-			return
+		var width, height *int
+		var thumbnail []byte
+		if contentType == "audio" {
+			if e = prepareAudio(r.Context(), data, mime, hash, size); e != nil {
+				if e.Error() == "audio_validation_unavailable" {
+					problem(w, 503, e.Error())
+				} else {
+					problem(w, 422, e.Error())
+				}
+				return
+			}
+		} else {
+			imageWidth, imageHeight, imageThumbnail, imageErr := prepareImage(data, mime, hash, size)
+			if imageErr != nil {
+				problem(w, 422, imageErr.Error())
+				return
+			}
+			width, height, thumbnail = &imageWidth, &imageHeight, imageThumbnail
 		}
 		// Read staging once and write the verified bytes to a key never signed for upload.
 		if _, e = tx.Exec(r.Context(), "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", hash); e != nil {
@@ -231,7 +245,7 @@ func (s *Server) completeUpload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !allowDuplicate && !input.AllowDuplicate {
-			found, e := duplicateImage(r.Context(), tx, w, hash, id)
+			found, e := duplicateMedia(r.Context(), tx, w, hash, id)
 			if e != nil {
 				internal(w)
 				return
@@ -240,15 +254,21 @@ func (s *Server) completeUpload(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		key = "originals/" + id.String() + "." + storage.ImageExtension(mime)
-		thumbKey := "thumbnails/" + id.String() + ".png"
+		key = "originals/" + id.String() + "." + storage.MediaExtension(mime)
+		var thumbKey *string
+		if contentType == "image" {
+			value := "thumbnails/" + id.String() + ".png"
+			thumbKey = &value
+		}
 		if e = s.store.Put(r.Context(), key, mime, data); e != nil {
 			problem(w, 502, "storage_unavailable")
 			return
 		}
-		if e = s.store.Put(r.Context(), thumbKey, "image/png", thumbnail); e != nil {
-			problem(w, 502, "storage_unavailable")
-			return
+		if thumbKey != nil {
+			if e = s.store.Put(r.Context(), *thumbKey, "image/png", thumbnail); e != nil {
+				problem(w, 502, "storage_unavailable")
+				return
+			}
 		}
 		var previewKey *string
 		if mime == "image/gif" {
@@ -265,7 +285,7 @@ func (s *Server) completeUpload(w http.ResponseWriter, r *http.Request) {
 			previewKey = &value
 		}
 		analysisStatus := "queued"
-		if s.cfg.DemoMode {
+		if s.cfg.DemoMode || contentType == "audio" {
 			analysisStatus = "not_requested"
 		}
 		_, err = tx.Exec(r.Context(), `UPDATE memes SET width=$2,height=$3,thumbnail_object_key=$4,preview_object_key=$5,status='ready',analysis_status=$6,original_object_key=$7,updated_at=now() WHERE id=$1`, id, width, height, thumbKey, previewKey, analysisStatus, key)
@@ -273,7 +293,7 @@ func (s *Server) completeUpload(w http.ResponseWriter, r *http.Request) {
 			internal(w)
 			return
 		}
-		if !s.cfg.DemoMode {
+		if !s.cfg.DemoMode && contentType != "audio" {
 			_, err = tx.Exec(r.Context(), `INSERT INTO jobs(id,meme_id,type,input_revision,provider,requested_model,prompt_version) VALUES($1,$2,'analyze_content',0,'openai',COALESCE((SELECT openai_model FROM admin_settings WHERE singleton),$3),'v1')`, uuid.New(), id, s.cfg.OpenAIModel)
 			if err != nil {
 				internal(w)
@@ -302,7 +322,7 @@ func (s *Server) media(w http.ResponseWriter, r *http.Request) {
 	}
 	var original, thumbnail string
 	// Older GIFs use their original until an animated WebP preview is available.
-	err = s.db.QueryRow(r.Context(), `SELECT original_object_key,COALESCE(preview_object_key,CASE WHEN mime_type='image/gif' THEN original_object_key ELSE thumbnail_object_key END) FROM memes WHERE id=$1 AND content_type='image' AND status='ready' AND deleted_at IS NULL`, id).Scan(&original, &thumbnail)
+	err = s.db.QueryRow(r.Context(), `SELECT original_object_key,COALESCE(preview_object_key,CASE WHEN mime_type='image/gif' OR content_type='audio' THEN original_object_key ELSE thumbnail_object_key END) FROM memes WHERE id=$1 AND content_type IN ('image','audio') AND status='ready' AND deleted_at IS NULL`, id).Scan(&original, &thumbnail)
 	if errors.Is(err, pgx.ErrNoRows) {
 		problem(w, 404, "meme_not_found")
 		return
@@ -344,7 +364,7 @@ func (s *Server) publicImage(w http.ResponseWriter, r *http.Request, thumbnail b
 	var key, mime, hash string
 	var thumb *string
 	var size int64
-	err = s.db.QueryRow(r.Context(), `SELECT original_object_key,thumbnail_object_key,mime_type,size_bytes,sha256 FROM memes WHERE id=$1 AND content_type='image' AND status='ready' AND deleted_at IS NULL`, id).Scan(&key, &thumb, &mime, &size, &hash)
+	err = s.db.QueryRow(r.Context(), `SELECT original_object_key,thumbnail_object_key,mime_type,size_bytes,sha256 FROM memes WHERE id=$1 AND content_type IN ('image','audio') AND status='ready' AND deleted_at IS NULL`, id).Scan(&key, &thumb, &mime, &size, &hash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		problem(w, 404, "meme_not_found")
 		return
@@ -353,7 +373,7 @@ func (s *Server) publicImage(w http.ResponseWriter, r *http.Request, thumbnail b
 		internal(w)
 		return
 	}
-	if extension := r.PathValue("extension"); extension != "" && extension != storage.ImageExtension(mime) {
+	if extension := r.PathValue("extension"); extension != "" && extension != storage.MediaExtension(mime) {
 		problem(w, 404, "meme_not_found")
 		return
 	}

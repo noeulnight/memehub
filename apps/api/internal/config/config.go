@@ -190,12 +190,12 @@ func Parse(get func(string) string) (Config, error) {
 			return c, fmt.Errorf("UPLOAD_MAX_BYTES must be between 1 and 52428800")
 		}
 	}
-	c.UploadAllowedMIMEs = []string{"image/jpeg", "image/png", "image/webp", "image/gif"}
+	c.UploadAllowedMIMEs = []string{"image/jpeg", "image/png", "image/webp", "image/gif", "audio/mpeg", "audio/wav", "audio/ogg", "audio/mp4"}
 	if raw := get("UPLOAD_ALLOWED_MIME_TYPES"); raw != "" {
 		c.UploadAllowedMIMEs = strings.Split(raw, ",")
 	}
 	for _, value := range c.UploadAllowedMIMEs {
-		if value != "image/jpeg" && value != "image/png" && value != "image/webp" && value != "image/gif" {
+		if value != "image/jpeg" && value != "image/png" && value != "image/webp" && value != "image/gif" && value != "audio/mpeg" && value != "audio/wav" && value != "audio/ogg" && value != "audio/mp4" {
 			return c, fmt.Errorf("unsupported UPLOAD_ALLOWED_MIME_TYPES")
 		}
 	}

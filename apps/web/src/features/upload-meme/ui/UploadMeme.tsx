@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type SubmitEvent, type ChangeEvent } from 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { isAxiosError } from 'axios';
 import { getSession } from '../../../entities/session';
-import { ArrowUpIcon, ImageIcon, LoadingIcon, PlusIcon } from '../../../shared/ui/icons';
+import { ArrowUpIcon, AudioIcon, ImageIcon, LoadingIcon, PlusIcon } from '../../../shared/ui/icons';
 import { Dialog, DialogTitle, DialogDescription } from '../../../shared/ui/dialog';
 import {
   DialogPanel,
@@ -17,7 +17,7 @@ import { Progress } from '../../../shared/ui/progress';
 import { Button } from '../../../shared/ui/button';
 import { Card, CardContent } from '../../../shared/ui/card';
 import { apiError, endpoint, useApi } from '../../../shared/api/client';
-import { createTextMeme, type TextInput } from '../api/upload';
+import { createTextMeme, mediaMIME, type TextInput } from '../api/upload';
 import { useUploadQueue, type UploadMetadata } from '../model/useUploadQueue';
 
 const resumeUploadKey = 'memehub:resume-upload';
@@ -28,7 +28,7 @@ export function UploadMeme() {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const form = useRef<HTMLFormElement>(null);
-  const [contentType, setContentType] = useState<'image' | 'text'>('image');
+  const [contentType, setContentType] = useState<'image' | 'text' | 'audio'>('image');
   const [bodyText, setBodyText] = useState('');
   const [dragging, setDragging] = useState(false);
   const [fileError, setFileError] = useState('');
@@ -107,13 +107,13 @@ export function UploadMeme() {
       setFileError(apiError(error));
     }
   }
-  function runImages(ids?: string[], allowDuplicate = false) {
+  function runFiles(ids?: string[], allowDuplicate = false) {
     if (form.current?.reportValidity()) void queue.run(ids, allowDuplicate);
   }
   function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     if (contentType === 'text') textMutation.mutate({ ...metadata(), body_text: bodyText });
-    else runImages();
+    else runFiles();
   }
   const done =
     queue.items.length > 0 &&
@@ -175,7 +175,7 @@ export function UploadMeme() {
                 value={contentType}
                 spacing={1}
                 onValueChange={(value) => {
-                  if (value === 'image' || value === 'text') {
+                  if (value === 'image' || value === 'text' || value === 'audio') {
                     setContentType(value);
                     setFileError('');
                     textMutation.reset();
@@ -185,9 +185,10 @@ export function UploadMeme() {
                 variant="outline"
               >
                 <ToggleGroupItem value="image">Images</ToggleGroupItem>
+                <ToggleGroupItem value="audio">Audio</ToggleGroupItem>
                 <ToggleGroupItem value="text">Text</ToggleGroupItem>
               </ToggleGroup>
-              {contentType === 'image' ? (
+              {contentType !== 'text' ? (
                 <div>
                   <label
                     onDragOver={(event) => {
@@ -205,20 +206,31 @@ export function UploadMeme() {
                     <Input
                       type="file"
                       multiple
-                      accept="image/jpeg,image/png,image/webp,image/gif"
-                      aria-label="Choose images"
+                      accept={
+                        contentType === 'audio'
+                          ? 'audio/mpeg,audio/wav,audio/x-wav,audio/ogg,audio/mp4,.mp3,.wav,.ogg,.m4a'
+                          : 'image/jpeg,image/png,image/webp,image/gif'
+                      }
+                      aria-label={contentType === 'audio' ? 'Choose audio files' : 'Choose images'}
                       className="sr-only"
                       onChange={(event) => {
                         addFiles(Array.from(event.target.files ?? []));
                         event.target.value = '';
                       }}
                     />
-                    <ImageIcon
-                      className="size-4 shrink-0 text-muted-foreground"
-                      aria-hidden="true"
-                    />
+                    <span aria-hidden="true">
+                      {contentType === 'audio' ? (
+                        <AudioIcon className="size-4 text-muted-foreground" />
+                      ) : (
+                        <ImageIcon className="size-4 text-muted-foreground" />
+                      )}
+                    </span>
                     <span className="min-w-0">
-                      <span className="block text-sm">Drop images or browse</span>
+                      <span className="block text-sm">
+                        {contentType === 'audio'
+                          ? 'Drop audio files or browse'
+                          : 'Drop images or browse'}
+                      </span>
                       <span className="block text-xs text-muted-foreground">
                         Up to 100 · 10 MB each
                       </span>
@@ -240,7 +252,7 @@ export function UploadMeme() {
               )}
               {contentType === 'text' && <MetadataFields />}
             </fieldset>
-            {contentType === 'image' && queue.items.length > 0 && (
+            {contentType !== 'text' && queue.items.length > 0 && (
               <section aria-label="Upload queue" className="mt-5 space-y-3">
                 <p role="status" className="text-xs text-muted-foreground">
                   {queue.items.filter((item) => item.status === 'completed').length}/
@@ -252,7 +264,9 @@ export function UploadMeme() {
                       <Card>
                         <CardContent className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-3 p-4 text-xs sm:grid-cols-[7rem_minmax(0,1fr)]">
                           <UploadPreview file={item.file} />
-                          <div className="min-w-0 space-y-3">
+                          <div
+                            className={`min-w-0 space-y-3 ${mediaMIME(item.file).startsWith('audio/') ? 'col-span-full' : ''}`}
+                          >
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <p className="truncate font-medium">{item.file.name}</p>
@@ -311,7 +325,7 @@ export function UploadMeme() {
                             )}
                             {item.duplicate && (
                               <p className="text-muted-foreground">
-                                Existing: {item.duplicate.title || 'Untitled image'}
+                                Existing: {item.duplicate.title || 'Untitled file'}
                               </p>
                             )}
                             {item.status === 'duplicate' && (
@@ -321,7 +335,7 @@ export function UploadMeme() {
                                   size="xs"
                                   variant="secondary"
                                   disabled={busy}
-                                  onClick={() => runImages([item.id], true)}
+                                  onClick={() => runFiles([item.id], true)}
                                 >
                                   Upload anyway
                                 </Button>
@@ -342,7 +356,7 @@ export function UploadMeme() {
                                 size="xs"
                                 variant="secondary"
                                 disabled={busy}
-                                onClick={() => runImages([item.id])}
+                                onClick={() => runFiles([item.id])}
                               >
                                 Retry
                               </Button>
@@ -362,7 +376,7 @@ export function UploadMeme() {
             )}
           </DialogBody>
           <DialogPanelFooter>
-            {contentType === 'image' && done ? (
+            {contentType !== 'text' && done ? (
               <Button
                 type="button"
                 onClick={() => {
@@ -376,7 +390,7 @@ export function UploadMeme() {
             ) : (
               <Button
                 type="submit"
-                disabled={busy || (contentType === 'image' ? !actionable : !bodyText.trim())}
+                disabled={busy || (contentType !== 'text' ? !actionable : !bodyText.trim())}
               >
                 {busy ? (
                   <LoadingIcon
@@ -386,7 +400,7 @@ export function UploadMeme() {
                 ) : (
                   <ArrowUpIcon aria-hidden="true" />
                 )}
-                {busy ? 'Saving…' : contentType === 'image' ? 'Save / retry images' : 'Save text'}
+                {busy ? 'Saving…' : contentType !== 'text' ? 'Save / retry files' : 'Save text'}
               </Button>
             )}
           </DialogPanelFooter>
@@ -454,15 +468,26 @@ function MetadataFields({
 function UploadPreview({ file }: { file: File }) {
   const [url, setUrl] = useState<string>();
   useEffect(() => {
-    if (!file.type.startsWith('image/')) return;
     const objectURL = URL.createObjectURL(file);
     setUrl(objectURL);
     return () => URL.revokeObjectURL(objectURL);
   }, [file]);
   return (
-    <div className="flex aspect-square items-center justify-center overflow-hidden rounded-md bg-muted/30">
+    <div
+      className={`flex items-center justify-center overflow-hidden rounded-md bg-muted/30 ${mediaMIME(file).startsWith('audio/') ? 'col-span-full min-h-14' : 'aspect-square'}`}
+    >
       {url ? (
-        <img src={url} alt={`Preview: ${file.name}`} className="size-full object-contain" />
+        mediaMIME(file).startsWith('audio/') ? (
+          <audio
+            controls
+            preload="none"
+            src={url}
+            aria-label={`Preview: ${file.name}`}
+            className="w-full"
+          />
+        ) : (
+          <img src={url} alt={`Preview: ${file.name}`} className="size-full object-contain" />
+        )
       ) : (
         <ImageIcon className="size-5 text-muted-foreground" aria-hidden="true" />
       )}

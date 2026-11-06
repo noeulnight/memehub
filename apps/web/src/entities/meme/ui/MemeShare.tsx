@@ -65,7 +65,7 @@ export function MemeShare({
     }
   }
   const kinds: ('media' | 'detail')[] =
-    meme.content_type === 'image' ? ['media', 'detail'] : ['detail'];
+    meme.content_type !== 'text' ? ['media', 'detail'] : ['detail'];
   const label = (kind: 'media' | 'detail') =>
     kind === 'media' ? 'Copy media URL' : 'Copy detail URL';
   return (

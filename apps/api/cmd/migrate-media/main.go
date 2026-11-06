@@ -131,7 +131,7 @@ func migrateOne(ctx context.Context, db *pgxpool.Pool, store objectStore, id str
 	if err != nil {
 		return fmt.Errorf("cannot read meme")
 	}
-	ext := storage.ImageExtension(mime)
+	ext := storage.MediaExtension(mime)
 	if ext == "" {
 		return fmt.Errorf("unsupported original MIME type")
 	}

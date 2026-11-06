@@ -1,7 +1,7 @@
 import axios, { type AxiosInstance } from 'axios';
 import type { Meme } from '../../../entities/meme';
 
-export type ImageInput = {
+export type FileInput = {
   file: File;
   title: string;
   source_url: string;
@@ -11,32 +11,58 @@ export type ImageInput = {
 type Reservation = Meme & {
   upload: { url: string; method: 'PUT'; headers: Record<string, string>; expires_at: string };
 };
-export function validateImageFile(file: File) {
+export function mediaMIME(file: File) {
+  const aliases: Record<string, string> = {
+    'audio/x-wav': 'audio/wav',
+    'audio/wave': 'audio/wav',
+    'audio/x-m4a': 'audio/mp4',
+    'audio/mp3': 'audio/mpeg',
+  };
+  if (file.type) return aliases[file.type] || file.type;
+  return (
+    (
+      { mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4' } as Record<
+        string,
+        string
+      >
+    )[file.name.split('.').pop()?.toLowerCase() || ''] || ''
+  );
+}
+export function validateMediaFile(file: File) {
   if (
-    !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type) ||
+    ![
+      'image/png',
+      'image/jpeg',
+      'image/webp',
+      'image/gif',
+      'audio/mpeg',
+      'audio/wav',
+      'audio/ogg',
+      'audio/mp4',
+    ].includes(mediaMIME(file)) ||
     file.size === 0 ||
     file.size > 10 * 1024 * 1024
   )
-    throw new Error('Choose a JPEG, PNG, WebP, or GIF image up to 10 MB.');
+    throw new Error('Choose an image or MP3, WAV, OGG, or M4A audio file up to 10 MB.');
 }
 
 export type UploadCheckpoint = { id?: string; uploaded?: boolean };
-export class DuplicateImageError extends Error {
+export class DuplicateMediaError extends Error {
   constructor(public duplicate: { id: string; title: string }) {
-    super('This image is already in the library.');
+    super('This file is already in the library.');
   }
 }
 
-export async function uploadImage(
+export async function uploadFile(
   api: AxiosInstance,
-  input: ImageInput,
+  input: FileInput,
   onProgress: (percent: number) => void,
   signal?: AbortSignal,
   options: { checkpoint?: UploadCheckpoint; allowDuplicate?: boolean } = {},
 ) {
   const checkpoint = options.checkpoint ?? {};
   const { file, ...metadata } = input;
-  validateImageFile(file);
+  validateMediaFile(file);
   try {
     if (!checkpoint.uploaded) {
       let upload: Reservation['upload'];
@@ -55,9 +81,9 @@ export async function uploadImage(
         const { data } = await api.post<Reservation>(
           'memes',
           {
-            content_type: 'image',
+            content_type: mediaMIME(file).startsWith('audio/') ? 'audio' : 'image',
             original_filename: file.name,
-            mime_type: file.type,
+            mime_type: mediaMIME(file),
             size_bytes: file.size,
             sha256,
             ...metadata,
@@ -93,11 +119,11 @@ export async function uploadImage(
     if (axios.isAxiosError(error)) {
       const body = error.response?.data;
       if (
-        body?.error === 'duplicate_image' &&
+        ['duplicate_image', 'duplicate_audio'].includes(body?.error) &&
         typeof body.duplicate?.id === 'string' &&
         typeof body.duplicate?.title === 'string'
       )
-        throw new DuplicateImageError(body.duplicate);
+        throw new DuplicateMediaError(body.duplicate);
       if (error.response?.status === 404) {
         delete checkpoint.id;
         delete checkpoint.uploaded;
@@ -107,7 +133,7 @@ export async function uploadImage(
   }
 }
 
-export type TextInput = Omit<ImageInput, 'file'> & { body_text: string };
+export type TextInput = Omit<FileInput, 'file'> & { body_text: string };
 export async function createTextMeme(api: AxiosInstance, input: TextInput, signal?: AbortSignal) {
   if (!input.body_text.trim() || Array.from(input.body_text).length > 10_000) {
     throw new Error('Enter text up to 10,000 characters.');

@@ -7,6 +7,7 @@ export {
   HiOutlineCog as SettingsIcon,
   HiOutlineArrowUp as ArrowUpIcon,
   HiOutlinePhotograph as ImageIcon,
+  HiOutlineMusicNote as AudioIcon,
   HiOutlineRefresh as LoadingIcon,
   HiOutlinePlus as PlusIcon,
   HiOutlineUser as UserIcon,

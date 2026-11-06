@@ -32,7 +32,7 @@ func (w *Worker) RunOne(ctx context.Context) (bool, error) {
 	var original string
 	var thumbnail, preview *string
 	err = tx.QueryRow(ctx, `SELECT id,original_object_key,thumbnail_object_key,preview_object_key FROM memes
- WHERE content_type='image' AND objects_deleted_at IS NULL AND (cleanup_after IS NULL OR cleanup_after<=now())
+ WHERE content_type IN ('image','audio') AND objects_deleted_at IS NULL AND (cleanup_after IS NULL OR cleanup_after<=now())
  AND ((deleted_at IS NOT NULL AND deleted_at<now()-COALESCE((SELECT deleted_image_retention_days*interval '1 day' FROM admin_settings WHERE singleton),$1::interval))
  OR (deleted_at IS NULL AND status IN ('uploading','failed') AND updated_at<now()-COALESCE((SELECT incomplete_upload_retention_hours*interval '1 hour' FROM admin_settings WHERE singleton),$2::interval)))
  ORDER BY updated_at,id LIMIT 1 FOR UPDATE SKIP LOCKED`, w.DeletedRetention.String(), w.UploadRetention.String()).Scan(&id, &original, &thumbnail, &preview)
