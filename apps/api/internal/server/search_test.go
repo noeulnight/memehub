@@ -113,10 +113,20 @@ func TestHybridSearchPaginationFiltersAndFallback(t *testing.T) {
 	if len(p.Items) != 1 || p.Items[0].ID != second {
 		t.Fatal("mine filter ignored", p)
 	}
-	p = get(base+"&content_type=image", nil)
-	if len(p.Items) != 0 {
-		t.Fatal("content filter ignored")
+	for _, filter := range []string{"content_type=image", "type=image", "type=audio"} {
+		p = get(base+"&"+filter, nil)
+		if len(p.Items) != 0 {
+			t.Fatal("content filter ignored", filter)
+		}
 	}
+	p = get(base+"&type=text&limit=1", nil)
+	if len(p.Items) != 1 || p.Items[0].ID != exact || p.Next == nil {
+		t.Fatal("type filter missing hybrid results", p)
+	}
+	typeCursor := url.QueryEscape(*p.Next)
+	// The alias resolves to the same filter fingerprint; changing the type invalidates the cursor.
+	get(base+"&content_type=text&limit=1&cursor="+typeCursor, nil)
+	mustStatus(t, request(t, h, "GET", base+"&type=audio&cursor="+typeCursor, nil, nil, ""), 400)
 	collection := uuid.New()
 	exec(`INSERT INTO collections(id,user_id,name) VALUES($1,$2,'private')`, collection, ownerID)
 	exec(`INSERT INTO collection_memes(collection_id,meme_id) VALUES($1,$2)`, collection, exact)
@@ -351,5 +361,69 @@ func TestSearchNormalizationAndFieldPriority(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestMemeTypeFilter(t *testing.T) {
+	db := testPool(t)
+	app := &Server{db: db}
+	h := app.Handler()
+	ctx := context.Background()
+	owner := uuid.New()
+	if _, err := db.Exec(ctx, "INSERT INTO users(id,oidc_issuer,oidc_subject) VALUES($1,'test','type-filter')", owner); err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"text", "image", "audio"} {
+		var err error
+		if kind == "text" {
+			_, err = db.Exec(ctx, "INSERT INTO memes(id,created_by,content_type,title,body_text,status) VALUES($1,$2,'text','filterable','body','ready')", uuid.New(), owner)
+		} else {
+			mime := "image/png"
+			var dimension *int
+			if kind == "image" {
+				value := 10
+				dimension = &value
+			} else {
+				mime = "audio/mpeg"
+			}
+			_, err = db.Exec(ctx, `INSERT INTO memes(id,created_by,content_type,title,status,original_filename,original_object_key,mime_type,size_bytes,width,height,sha256) VALUES($1,$2,$3,'filterable','ready','file',$4,$5,100,$6,$6,$7)`, uuid.New(), owner, kind, uuid.NewString(), mime, dimension, strings.Repeat("a", 64))
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, prefix := range []string{"/api/memes?", "/api/memes?q=filterable&"} {
+		for _, tc := range []struct {
+			filter, kind  string
+			count, status int
+		}{
+			{"", "", 3, 200}, {"type=", "", 3, 200},
+			{"type=image", "image", 1, 200}, {"type=text", "text", 1, 200}, {"type=audio", "audio", 1, 200},
+			{"content_type=image", "image", 1, 200}, {"type=audio&content_type=audio", "audio", 1, 200},
+			{"type=&content_type=text", "text", 1, 200}, {"type=image&content_type=", "image", 1, 200},
+			{"type=video", "", 0, 400}, {"content_type=video", "", 0, 400}, {"type=image&content_type=audio", "", 0, 400},
+		} {
+			t.Run(prefix+tc.filter, func(t *testing.T) {
+				response := request(t, h, "GET", prefix+tc.filter, nil, nil, "")
+				mustStatus(t, response, tc.status)
+				if tc.status != 200 {
+					return
+				}
+				var page struct {
+					Items []Meme `json:"items"`
+				}
+				if err := json.Unmarshal(response.Body.Bytes(), &page); err != nil {
+					t.Fatal(err)
+				}
+				if len(page.Items) != tc.count {
+					t.Fatalf("got %d items, want %d", len(page.Items), tc.count)
+				}
+				for _, m := range page.Items {
+					if tc.kind != "" && m.ContentType != tc.kind {
+						t.Fatal("wrong type", m.ContentType)
+					}
+				}
+			})
+		}
 	}
 }

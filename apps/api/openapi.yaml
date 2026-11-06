@@ -431,9 +431,16 @@ paths:
           schema:
             type: string
             maxLength: 200
+        - name: type
+          in: query
+          description: Optional content type filter. Omit or pass an empty value to include all types. If content_type is also non-empty, both values must match; conflicting values return 400 conflicting_content_type_filters. Invalid values return 400 invalid_content_type.
+          required: false
+          schema:
+            type: string
+            enum: [image, text, audio, '']
         - name: content_type
           in: query
-          description: Omit to include both types.
+          description: Existing alias for type. Omit to include all types. Non-empty type and content_type values must match.
           required: false
           schema:
             type: string
