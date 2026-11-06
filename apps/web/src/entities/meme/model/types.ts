@@ -7,7 +7,7 @@ export type Meme = {
   created_by_name: string | null;
   created_at: string;
   mime_type?: string | null;
-  content_type: 'text' | 'image';
+  content_type: 'text' | 'image' | 'audio';
   analysis_status: 'not_requested' | 'queued' | 'processing' | 'completed' | 'failed';
   width?: number | null;
   height?: number | null;
@@ -21,4 +21,4 @@ export type Meme = {
   tags: string[];
 };
 export type MemePage = { items: Meme[]; next_cursor: string | null };
-export type ContentFilter = '' | 'image' | 'text';
+export type ContentFilter = '' | 'image' | 'text' | 'audio';

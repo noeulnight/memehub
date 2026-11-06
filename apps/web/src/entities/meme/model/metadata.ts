@@ -3,7 +3,7 @@ import type { Meme } from './types';
 import { memeShareURLs } from './share';
 export const siteTitle = 'Memehub — The internet, collected.';
 export const siteDescription =
-  'A home for image and text memes. Search the collection and find your next perfect reaction.';
+  'A home for image, audio, and text memes. Search the collection and find your next perfect reaction.';
 function concise(value: string, length: number) {
   const text = value.replace(/\s+/gu, ' ').trim();
   return Array.from(text).length > length
@@ -37,7 +37,7 @@ export function metadata(appBase: string, apiBase: string, meme?: Meme) {
   }
   return {
     title: meme
-      ? `${concise(meme.title || meme.body_text || (meme.content_type === 'image' ? 'Image meme' : 'Text meme'), 80)} | Memehub`
+      ? `${concise(meme.title || meme.body_text || (meme.content_type === 'image' ? 'Image meme' : meme.content_type === 'audio' ? 'Audio meme' : 'Text meme'), 80)} | Memehub`
       : siteTitle,
     description: meme
       ? concise(

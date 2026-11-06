@@ -80,7 +80,7 @@ func nullable(value string) *string {
 func normalizeTag(value string) string { return tag.Key(value) }
 
 func (s *Server) validateMeme(in *memeInput) string {
-	if in.ContentType != "text" && in.ContentType != "image" {
+	if in.ContentType != "text" && in.ContentType != "image" && in.ContentType != "audio" {
 		return "invalid_content_type"
 	}
 	if in.ContentType == "text" && (!utf8.ValidString(in.BodyText) || strings.ContainsRune(in.BodyText, 0) || strings.TrimSpace(in.BodyText) == "" || utf8.RuneCountInString(in.BodyText) > s.cfg.TextMaxLength) {
@@ -154,12 +154,12 @@ func (s *Server) createMeme(w http.ResponseWriter, r *http.Request) {
 		problem(w, 422, code)
 		return
 	}
-	if in.ContentType == "image" {
-		if code := s.validateImage(&in); code != "" {
+	if in.ContentType == "image" || in.ContentType == "audio" {
+		if code := s.validateMedia(&in); code != "" {
 			problem(w, 422, code)
 			return
 		}
-		s.reserveImage(w, r, sess, in)
+		s.reserveMedia(w, r, sess, in)
 		return
 	}
 	tx, err := s.db.Begin(r.Context())
@@ -259,7 +259,7 @@ func (s *Server) updateMeme(w http.ResponseWriter, r *http.Request) {
 		internal(w)
 		return
 	}
-	if contentType != in.ContentType || (contentType == "image" && (in.BodyText != "" || in.OriginalFilename != "" || in.MIMEType != "" || in.SizeBytes != 0 || in.SHA256 != "")) {
+	if contentType != in.ContentType || (contentType != "text" && (in.BodyText != "" || in.OriginalFilename != "" || in.MIMEType != "" || in.SizeBytes != 0 || in.SHA256 != "")) {
 		problem(w, 422, "invalid_content_type_update")
 		return
 	}
@@ -345,7 +345,7 @@ func (s *Server) listMemesFiltered(w http.ResponseWriter, r *http.Request, analy
 		limit = n
 	}
 	contentType := query.Get("content_type")
-	if contentType != "" && contentType != "text" && contentType != "image" {
+	if contentType != "" && contentType != "text" && contentType != "image" && contentType != "audio" {
 		problem(w, 400, "invalid_content_type")
 		return
 	}

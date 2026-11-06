@@ -2,10 +2,10 @@ import { useRef, useState } from 'react';
 import type { AxiosInstance } from 'axios';
 import { apiError } from '../../../shared/api/client';
 import {
-  DuplicateImageError,
-  uploadImage,
-  validateImageFile,
-  type ImageInput,
+  DuplicateMediaError,
+  uploadFile,
+  validateMediaFile,
+  type FileInput,
   type UploadCheckpoint,
 } from '../api/upload';
 
@@ -20,7 +20,7 @@ export type UploadItem = {
   checkpoint: UploadCheckpoint;
   allowDuplicate?: boolean;
 };
-export type UploadMetadata = Omit<ImageInput, 'file'>;
+export type UploadMetadata = Omit<FileInput, 'file'>;
 
 export function useUploadQueue(api: AxiosInstance, onSettled: () => void) {
   const [items, setItems] = useState<UploadItem[]>([]);
@@ -37,13 +37,13 @@ export function useUploadQueue(api: AxiosInstance, onSettled: () => void) {
   function add(files: File[]) {
     if (runningRef.current) return;
     if (itemsRef.current.length + files.length > 100)
-      throw new Error('Choose up to 100 images per batch.');
+      throw new Error('Choose up to 100 files per batch.');
     publish([
       ...itemsRef.current,
       ...files.map((file) => {
         let error: string | undefined;
         try {
-          validateImageFile(file);
+          validateMediaFile(file);
         } catch (cause) {
           error = apiError(cause);
         }
@@ -81,7 +81,7 @@ export function useUploadQueue(api: AxiosInstance, onSettled: () => void) {
               duplicate: undefined,
             });
             try {
-              await uploadImage(
+              await uploadFile(
                 api,
                 { ...item.metadata, file: item.file },
                 (progress) =>
@@ -97,7 +97,7 @@ export function useUploadQueue(api: AxiosInstance, onSettled: () => void) {
               );
               update(item.id, { status: 'completed', progress: 100 });
             } catch (error) {
-              if (error instanceof DuplicateImageError)
+              if (error instanceof DuplicateMediaError)
                 update(item.id, {
                   status: 'duplicate',
                   duplicate: error.duplicate,

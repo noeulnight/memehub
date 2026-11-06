@@ -143,6 +143,8 @@ export function MemeCardInteraction({
     try {
       if (meme.content_type === 'image') {
         await copyImage(async () => (await getMedia(api, meme.id)).original.url);
+      } else if (meme.content_type === 'audio') {
+        await navigator.clipboard.writeText((await getMedia(api, meme.id)).original.url);
       } else {
         await navigator.clipboard.writeText(meme.body_text || '');
       }

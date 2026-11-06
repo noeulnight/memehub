@@ -90,7 +90,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/memes/{id}/upload-completion", s.completeUpload)
 	mux.HandleFunc("GET /api/memes/{id}/media", s.media)
 	mux.HandleFunc("GET /api/memes/{id}/file", s.originalMedia)
-	for _, extension := range []string{"jpg", "png", "webp", "gif"} {
+	for _, extension := range []string{"jpg", "png", "webp", "gif", "mp3", "wav", "ogg", "m4a"} {
 		mux.HandleFunc("GET /api/memes/{id}/file."+extension, func(w http.ResponseWriter, r *http.Request) {
 			r.SetPathValue("extension", extension)
 			s.originalMedia(w, r)

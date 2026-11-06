@@ -61,7 +61,8 @@ export function ManageMeme({
     ])
       input[field] = String(data.get(field) || '');
     if (meme.content_type === 'text') input.body_text = String(data.get('body_text') || '');
-    else input.extracted_text = String(data.get('extracted_text') || '');
+    else if (meme.content_type === 'image')
+      input.extracted_text = String(data.get('extracted_text') || '');
     mutation.mutate(input);
   }
   function start(next: 'edit' | 'delete') {
@@ -118,7 +119,7 @@ export function ManageMeme({
                     rows={5}
                   />
                 </label>
-              ) : (
+              ) : meme.content_type === 'image' ? (
                 <label className="block space-y-2 text-xs font-medium">
                   Extracted text
                   <Textarea
@@ -128,7 +129,7 @@ export function ManageMeme({
                     rows={3}
                   />
                 </label>
-              )}
+              ) : null}
               <label className="block space-y-2 text-xs font-medium">
                 Description
                 <Textarea

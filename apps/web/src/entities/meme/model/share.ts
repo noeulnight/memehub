@@ -10,10 +10,16 @@ export function memeShareURLs(
   detail.hash = '';
   detail.searchParams.set('meme', id);
   const extension = (
-    { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' } as Record<
-      string,
-      string
-    >
+    {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+      'image/gif': 'gif',
+      'audio/mpeg': 'mp3',
+      'audio/wav': 'wav',
+      'audio/ogg': 'ogg',
+      'audio/mp4': 'm4a',
+    } as Record<string, string>
   )[mimeType || ''];
   const filename = extension ? `file.${extension}` : 'file';
   const media = new URL(endpoint(apiBase, `memes/${encodeURIComponent(id)}/${filename}`), appBase);

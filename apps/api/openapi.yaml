@@ -17,7 +17,7 @@ info:
 
     Known implementation follow-ups: the image branches of unified PUT/DELETE meme operations; administrator authorization; asynchronous image deletion; JSON fallback errors; analysis workers that preserve manual content. These are separate implementation work, not changes made by this design.
 
-    Text and image memes share POST /memes, GET /memes/{id}, PUT /memes/{id}, and DELETE /memes/{id}. The content_type discriminator selects the request and response branch. Signed upload transport and completion remain image-specific subresources; there is no separate image creation endpoint.
+    Text and image memes share POST /memes, GET /memes/{id}, PUT /memes/{id}, and DELETE /memes/{id}. The content_type discriminator selects the request and response branch. Signed upload transport and completion are shared file subresources; there is no separate image creation endpoint.
 
     All analysis control, history, result inspection, and application endpoints live under /admin/memes/{id}/analyses and require a server-resolved admin role in addition to a valid session. Ordinary members, including the meme author, receive 403 admin_required. Administrators do not need to own the target meme. Check the role before loading analysis data or creating work. A client-provided role, display name, email, or unvalidated OIDC claim must never grant access.
 
@@ -440,6 +440,7 @@ paths:
             enum:
               - image
               - text
+              - audio
         - name: tag
           in: query
           description:
@@ -460,11 +461,11 @@ paths:
       operationId: createMeme
       tags:
         - Memes
-      summary: Create a text or image meme
+      summary: Create a text, image, or audio meme
       description: Requires login, matching Origin, and CSRF token. A single endpoint accepts
-        content_type=text or content_type=image. Text requests supply body_text and are ready
-        immediately. Image requests supply original_filename, mime_type, size_bytes, and sha256 and
-        reserve an uploading image meme. Return a flat meme object in both cases; only image
+        content_type=text, content_type=image, or content_type=audio. Text requests supply body_text and are ready
+        immediately. Image and audio requests supply original_filename, mime_type, size_bytes, and sha256 and
+        reserve an uploading file meme. Return a flat meme object; image and audio
         creation adds upload instructions. Browser PUT bytes to the returned signed URL, then call
         upload-completion. Image creation uses a distinct staging key; original_object_key points to
         the immutable server-only original. Never accept storage keys from clients. Source and
@@ -750,22 +751,22 @@ paths:
       operationId: completeImageUpload
       tags:
         - Uploads
-      summary: Verify an uploaded image and save its original and thumbnail
+      summary: Verify and publish an uploaded image or audio file
       description:
-        Author only. Read the staging object with a byte limit and verify its actual size,
-        SHA-256, decoded format, and dimensions. Only JPEG, PNG, and WebP are supported. The
-        decoded image must not exceed 20 million pixels. Save the verified bytes to a separate
-        server-only original key and generate a PNG thumbnail with a maximum edge of 640 pixels.
-        Mark ready and queue one automatic OpenAI analysis job in the same database transaction.
-        Preparation runs synchronously in this request. Repeated completion of a ready image
-        returns the meme without another analysis job. Invalid uploads remain uploading and may
-        be retried. A previously issued PUT URL can only modify staging, never the ready original.
+        Author only. Verify staging bytes against the declared size, SHA-256, and actual media
+        format before copying them to an immutable original key with the correct extension.
+        Images are limited to 20 million pixels and receive thumbnails and automatic OpenAI analysis.
+        Audio supports MP3, PCM WAV, Vorbis/Opus OGG, and AAC M4A with exactly one audio stream and
+        no video stream. Audio does not receive thumbnails or automatic analysis.
+        Preparation runs synchronously. Repeated completion returns the ready meme without another
+        analysis job. Invalid files remain uploading and may be retried. Missing audio validation
+        tools return 503. Old PUT URLs can only modify staging, never the published original.
       x-implementation-status: implemented
       security:
         - sessionCookie: []
       responses:
         '200':
-          description: Verified image saved, or already ready.
+          description: Verified media saved, or already ready.
           content:
             application/json:
               schema:
@@ -800,9 +801,9 @@ paths:
     get:
       operationId: getOriginalImage
       tags: [Uploads]
-      summary: Get the original image bytes
+      summary: Get the original media bytes
       description: >-
-        Stable public URL for ready, non-deleted images. HEAD is also supported without
+        Stable public URL for ready, non-deleted image or audio memes. HEAD is also supported without
         reading image bytes from storage. Matching If-None-Match returns 304 after checking
         visibility. Successful responses use public, max-age=60, must-revalidate; cached
         images may remain visible for 60 seconds after deletion. Errors use no-store.
@@ -811,7 +812,7 @@ paths:
       security: []
       responses:
         '200':
-          description: Image bytes (no body for HEAD).
+          description: Original media bytes (no body for HEAD).
           headers:
             ETag:
               schema: { type: string }
@@ -819,6 +820,8 @@ paths:
               schema: { type: string }
           content:
             'image/*':
+              schema: { type: string, format: binary }
+            'audio/*':
               schema: { type: string, format: binary }
         '304':
           description: Image representation has not changed. No body.
@@ -833,17 +836,17 @@ paths:
       - name: extension
         in: path
         required: true
-        schema: { type: string, enum: [jpg, png, webp, gif] }
-        description: Must match the stored image MIME type; otherwise returns 404.
+        schema: { type: string, enum: [jpg, png, webp, gif, mp3, wav, ogg, m4a] }
+        description: Must match the stored media MIME type; otherwise returns 404.
       - name: If-None-Match
         in: header
         schema: { type: string }
     get:
       operationId: getOriginalImageWithExtension
       tags: [Uploads]
-      summary: Get the original image bytes
+      summary: Get the original media bytes
       description: >-
-        Stable public URL for ready, non-deleted images. HEAD is also supported without
+        Stable public URL for ready, non-deleted image or audio memes. HEAD is also supported without
         reading image bytes from storage. Matching If-None-Match returns 304 after checking
         visibility. Successful responses use public, max-age=60, must-revalidate; cached
         images may remain visible for 60 seconds after deletion. Errors use no-store.
@@ -852,7 +855,7 @@ paths:
       security: []
       responses:
         '200':
-          description: Image bytes (no body for HEAD).
+          description: Original media bytes (no body for HEAD).
           headers:
             ETag:
               schema: { type: string }
@@ -860,6 +863,8 @@ paths:
               schema: { type: string }
           content:
             'image/*':
+              schema: { type: string, format: binary }
+            'audio/*':
               schema: { type: string, format: binary }
         '304':
           description: Image representation has not changed. No body.
@@ -879,7 +884,7 @@ paths:
       tags: [Uploads]
       summary: Get a static PNG thumbnail for link previews
       description: >-
-        Stable public URL for ready, non-deleted images. HEAD is also supported without
+        Stable public URL for ready, non-deleted image or audio memes. HEAD is also supported without
         reading image bytes from storage. Matching If-None-Match returns 304 after checking
         visibility. Successful responses use public, max-age=60, must-revalidate; cached
         images may remain visible for 60 seconds after deletion. Errors use no-store.
@@ -888,7 +893,7 @@ paths:
       security: []
       responses:
         '200':
-          description: Image bytes (no body for HEAD).
+          description: Original media bytes (no body for HEAD).
           headers:
             ETag:
               schema: { type: string }
@@ -913,7 +918,7 @@ paths:
         - Uploads
       summary: Get public original and thumbnail URLs
       description:
-        Public only for ready, non-deleted image memes. Otherwise return 404. Never expose the
+        Public only for ready, non-deleted image or audio memes. Otherwise return 404. Never expose the
         staging object. The browser uses these URLs for display or download; image clipboard access
         depends on browser support and storage CORS. Public S3 URLs have no signature or expiry. Soft-deleted objects remain directly
         readable until retention cleanup removes them. Demo storage uses expiring signed URLs.
@@ -1666,6 +1671,50 @@ components:
           type: integer
           format: int64
           minimum: 0
+    AudioMemeUpdate:
+      type: object
+      additionalProperties: false
+      required:
+        - content_type
+        - content_revision
+      properties:
+        content_type:
+          type: string
+          enum:
+            - audio
+        title:
+          type: string
+          maxLength: 200
+          default: ''
+        description:
+          type: string
+          maxLength: 10000
+          default: ''
+        source_url:
+          type: string
+          maxLength: 2048
+          description: Optional original post URL. Allow HTTP or HTTPS with a host and no embedded
+            credentials. Empty input is stored as NULL. Never fetch the URL automatically.
+          example: https://example.com/posts/123
+        source_name:
+          type: string
+          maxLength: 200
+          example: Example Community
+        source_author:
+          type: string
+          maxLength: 200
+          description: Original creator or publisher, separate from the authenticated submitter.
+          example: Original Creator
+        source_note:
+          type: string
+          maxLength: 2000
+          description: Free-text attribution, including offline sources. Source URL is optional.
+        tags:
+          $ref: '#/components/schemas/TagNames'
+        content_revision:
+          type: integer
+          format: int64
+          minimum: 0
     Meme:
       type: object
       additionalProperties: false
@@ -1707,12 +1756,13 @@ components:
             - 'null'
         mime_type:
           type: [string, 'null']
-          enum: [image/jpeg, image/png, image/webp, image/gif, null]
+          enum: [image/jpeg, image/png, image/webp, image/gif, audio/mpeg, audio/wav, audio/ogg, audio/mp4, null]
         content_type:
           type: string
           enum:
             - text
             - image
+            - audio
         title:
           type: string
         body_text:
@@ -2059,24 +2109,97 @@ components:
           description: Free-text attribution, including offline sources. Source URL is optional.
         tags:
           $ref: '#/components/schemas/TagNames'
+    AudioMemeCreate:
+      description: MP3, PCM WAV, Vorbis/Opus OGG, or AAC M4A audio. Actual bytes, MIME, size, and hash are verified before publishing. No automatic audio analysis.
+      type: object
+      additionalProperties: false
+      required:
+        - content_type
+        - original_filename
+        - mime_type
+        - size_bytes
+        - sha256
+      properties:
+        allow_duplicate:
+          type: boolean
+          default: false
+        content_type:
+          type: string
+          const: audio
+        original_filename:
+          type: string
+          minLength: 1
+          maxLength: 255
+          example: reaction.mp3
+        mime_type:
+          type: string
+          enum:
+            - audio/mpeg
+            - audio/wav
+            - audio/ogg
+            - audio/mp4
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          description:
+            Declared size. The server verifies the actual uploaded size against UPLOAD_MAX_BYTES;
+            default 10485760 bytes.
+        sha256:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+          description: Client-declared SHA-256. Verify it against actual bytes before making the meme ready.
+        title:
+          type: string
+          maxLength: 200
+          default: ''
+        description:
+          type: string
+          maxLength: 10000
+          default: ''
+        source_url:
+          type: string
+          maxLength: 2048
+          description: Optional original post URL. Allow HTTP or HTTPS with a host and no embedded
+            credentials. Empty input is stored as NULL. Never fetch the URL automatically.
+          example: https://example.com/posts/123
+        source_name:
+          type: string
+          maxLength: 200
+          example: Example Community
+        source_author:
+          type: string
+          maxLength: 200
+          description: Original creator or publisher, separate from the authenticated submitter.
+          example: Original Creator
+        source_note:
+          type: string
+          maxLength: 2000
+          description: Free-text attribution, including offline sources. Source URL is optional.
+        tags:
+          $ref: '#/components/schemas/TagNames'
     MemeCreate:
       oneOf:
         - $ref: '#/components/schemas/TextMemeCreate'
         - $ref: '#/components/schemas/ImageMemeCreate'
+        - $ref: '#/components/schemas/AudioMemeCreate'
       discriminator:
         propertyName: content_type
         mapping:
           text: '#/components/schemas/TextMemeCreate'
           image: '#/components/schemas/ImageMemeCreate'
+          audio: '#/components/schemas/AudioMemeCreate'
     MemeUpdate:
       oneOf:
         - $ref: '#/components/schemas/TextMemeUpdate'
         - $ref: '#/components/schemas/ImageMemeUpdate'
+        - $ref: '#/components/schemas/AudioMemeUpdate'
       discriminator:
         propertyName: content_type
         mapping:
           text: '#/components/schemas/TextMemeUpdate'
           image: '#/components/schemas/ImageMemeUpdate'
+          audio: '#/components/schemas/AudioMemeUpdate'
     TextMeme:
       allOf:
         - $ref: '#/components/schemas/Meme'
@@ -2173,15 +2296,113 @@ components:
             type: string
         upload:
           $ref: '#/components/schemas/SignedUpload'
+    AudioMemeCreated:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - created_by
+        - created_by_name
+        - created_by_username
+        - content_type
+        - title
+        - body_text
+        - description
+        - extracted_text
+        - source_url
+        - source_name
+        - source_author
+        - source_note
+        - status
+        - analysis_status
+        - content_revision
+        - created_at
+        - updated_at
+        - tags
+        - upload
+      properties:
+        mime_type:
+          type: [string, 'null']
+          enum: [audio/mpeg, audio/wav, audio/ogg, audio/mp4, null]
+        width:
+          type: [integer, 'null']
+        height:
+          type: [integer, 'null']
+        id:
+          type: string
+          format: uuid
+        created_by:
+          type: string
+          format: uuid
+        created_by_username:
+          type:
+            - string
+            - 'null'
+          description: Current OIDC preferred_username, populated on login.
+        created_by_name:
+          type:
+            - string
+            - 'null'
+        content_type:
+          type: string
+          const: audio
+        title:
+          type: string
+        body_text:
+          type:
+            - string
+            - 'null'
+        description:
+          type: string
+        extracted_text:
+          type: string
+        source_url:
+          type:
+            - string
+            - 'null'
+        source_name:
+          type:
+            - string
+            - 'null'
+        source_author:
+          type:
+            - string
+            - 'null'
+        source_note:
+          type:
+            - string
+            - 'null'
+        status:
+          $ref: '#/components/schemas/StorageStatus'
+        analysis_status:
+          $ref: '#/components/schemas/AnalysisStatus'
+        content_revision:
+          type: integer
+          format: int64
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        tags:
+          type: array
+          items:
+            type: string
+        upload:
+          $ref: '#/components/schemas/SignedUpload'
     MemeCreateResponse:
       description:
-        Flat meme response for both types. Only image creation adds signed upload instructions.
+        Flat meme response. Image and audio creation add signed upload instructions.
         Text creation keeps the existing response shape.
       oneOf:
         - $ref: '#/components/schemas/TextMeme'
         - $ref: '#/components/schemas/ImageMemeCreated'
+        - $ref: '#/components/schemas/AudioMemeCreated'
       discriminator:
         propertyName: content_type
         mapping:
           text: '#/components/schemas/TextMeme'
           image: '#/components/schemas/ImageMemeCreated'
+          audio: '#/components/schemas/AudioMemeCreated'

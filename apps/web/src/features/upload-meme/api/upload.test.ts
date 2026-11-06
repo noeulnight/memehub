@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import axios from 'axios';
 import { createApi } from '../../../shared/api/client';
-import { createTextMeme, uploadImage } from './upload';
+import { createTextMeme, uploadFile, validateMediaFile } from './upload';
 
 afterEach(() => vi.restoreAllMocks());
 describe('image uploads', () => {
@@ -51,7 +51,7 @@ describe('image uploads', () => {
       expect(options?.headers).not.toHaveProperty('X-CSRF-Token');
       return { data: null };
     });
-    expect(await uploadImage(api, input, () => {})).toEqual({ id: 'saved', status: 'ready' });
+    expect(await uploadFile(api, input, () => {})).toEqual({ id: 'saved', status: 'ready' });
     expect(put).toHaveBeenCalledOnce();
     expect(steps).toEqual(['memes', 'storage', 'memes/saved/upload-completion']);
   });
@@ -73,7 +73,7 @@ describe('image uploads', () => {
     };
     vi.spyOn(axios, 'put').mockRejectedValue(new Error('storage failed'));
     await expect(
-      uploadImage(
+      uploadFile(
         api,
         {
           file: new File(['bytes'], 'm.png', { type: 'image/png' }),
@@ -180,13 +180,13 @@ describe('upload recovery', () => {
       .mockResolvedValue({ data: null });
     const checkpoint = {};
     const file = input();
-    await expect(uploadImage(api, file, () => {}, undefined, { checkpoint })).rejects.toThrow(
+    await expect(uploadFile(api, file, () => {}, undefined, { checkpoint })).rejects.toThrow(
       'put failed',
     );
-    await expect(uploadImage(api, file, () => {}, undefined, { checkpoint })).rejects.toThrow(
+    await expect(uploadFile(api, file, () => {}, undefined, { checkpoint })).rejects.toThrow(
       'completion failed',
     );
-    await expect(uploadImage(api, file, () => {}, undefined, { checkpoint })).resolves.toEqual({
+    await expect(uploadFile(api, file, () => {}, undefined, { checkpoint })).resolves.toEqual({
       id: 'saved',
     });
     expect(put).toHaveBeenCalledTimes(2);
@@ -213,7 +213,7 @@ describe('upload recovery', () => {
       };
     };
     vi.spyOn(axios, 'put').mockResolvedValue({ data: null });
-    await uploadImage(api, input(), () => {}, undefined, { allowDuplicate: true });
+    await uploadFile(api, input(), () => {}, undefined, { allowDuplicate: true });
   });
   it('returns duplicate details for a confirmation choice', async () => {
     const api = createApi('/api');
@@ -226,7 +226,7 @@ describe('upload recovery', () => {
         data: { error: 'duplicate_image', duplicate: { id: 'existing', title: 'Existing' } },
       });
     };
-    await expect(uploadImage(api, input(), () => {})).rejects.toMatchObject({
+    await expect(uploadFile(api, input(), () => {})).rejects.toMatchObject({
       duplicate: { id: 'existing', title: 'Existing' },
     });
   });
@@ -281,11 +281,11 @@ describe('per-image metadata', () => {
       source_author: 'Bob',
     };
     const checkpoint = {};
-    await expect(uploadImage(api, first, () => {}, undefined, { checkpoint })).rejects.toThrow(
+    await expect(uploadFile(api, first, () => {}, undefined, { checkpoint })).rejects.toThrow(
       'temporary failure',
     );
-    await uploadImage(api, second, () => {});
-    await uploadImage(api, first, () => {}, undefined, { checkpoint });
+    await uploadFile(api, second, () => {});
+    await uploadFile(api, first, () => {}, undefined, { checkpoint });
     expect(sequence).toBe(2);
     expect(saved['image-1']).toMatchObject({
       title: 'Spring',
@@ -297,5 +297,72 @@ describe('per-image metadata', () => {
       source_author: 'Bob',
       source_url: second.source_url,
     });
+  });
+});
+
+describe('audio uploads', () => {
+  it.each([
+    ['sample.mp3', 'audio/mpeg', 'audio/mpeg'],
+    ['sample.wav', 'audio/x-wav', 'audio/wav'],
+    ['sample.ogg', 'audio/ogg', 'audio/ogg'],
+    ['sample.m4a', '', 'audio/mp4'],
+  ])('reserves and completes %s with a canonical MIME type', async (name, type, mime) => {
+    const api = createApi('/api');
+    const calls: string[] = [];
+    api.defaults.adapter = async (config) => {
+      calls.push(config.url!);
+      if (config.url === 'memes') {
+        expect(JSON.parse(config.data)).toMatchObject({
+          content_type: 'audio',
+          mime_type: mime,
+          original_filename: name,
+        });
+      }
+      return {
+        config,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        data:
+          config.url === 'memes'
+            ? {
+                id: 'audio',
+                upload: {
+                  url: 'https://storage.example/audio',
+                  method: 'PUT',
+                  headers: { 'Content-Type': mime },
+                },
+              }
+            : { id: 'audio', content_type: 'audio', status: 'ready' },
+      };
+    };
+    const put = vi.spyOn(axios, 'put').mockResolvedValue({ data: null });
+    const result = await uploadFile(
+      api,
+      {
+        file: new File(['audio bytes'], name, { type }),
+        title: 'Sound',
+        source_url: '',
+        source_name: '',
+        source_author: '',
+      },
+      () => {},
+    );
+    expect(result.content_type).toBe('audio');
+    expect(put).toHaveBeenCalledWith(
+      'https://storage.example/audio',
+      expect.any(File),
+      expect.objectContaining({ withCredentials: false, headers: { 'Content-Type': mime } }),
+    );
+    expect(calls).toEqual(['memes', 'memes/audio/upload-completion']);
+  });
+  it('rejects empty, oversized, and unsupported audio', () => {
+    for (const file of [
+      new File([], 'empty.mp3', { type: 'audio/mpeg' }),
+      new File([new Uint8Array(10 * 1024 * 1024 + 1)], 'big.wav', { type: 'audio/wav' }),
+      new File(['bytes'], 'audio.flac', { type: 'audio/flac' }),
+    ]) {
+      expect(() => validateMediaFile(file)).toThrow('10 MB');
+    }
   });
 });

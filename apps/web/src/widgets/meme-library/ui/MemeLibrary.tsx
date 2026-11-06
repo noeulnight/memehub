@@ -47,7 +47,7 @@ export function MemeLibrary() {
     setMine(params.get('mine') === 'true');
     setCollectionId(params.get('collection') || '');
     const kind = params.get('content_type');
-    if (kind === 'image' || kind === 'text') setFilter(kind);
+    if (kind === 'image' || kind === 'text' || kind === 'audio') setFilter(kind);
   }, []);
   useEffect(() => {
     if (session.isSuccess && !session.data) {
@@ -145,7 +145,7 @@ export function MemeLibrary() {
           onTagSearch={(selected) => updateSearch('', filter, selected)}
           onUserSearch={(username) => updateSearch(`@${username}`, filter)}
           analysis={
-            session.data?.is_admin ? (
+            session.data?.is_admin && sharedMeme.data.content_type !== 'audio' ? (
               <ManageAnalysis meme={sharedMeme.data} hideCompleted />
             ) : undefined
           }
@@ -198,7 +198,7 @@ export function MemeLibrary() {
                   index={i}
                   onSave={() => setSaveMemeId(meme.id)}
                   analysis={
-                    session.data?.is_admin ? (
+                    session.data?.is_admin && meme.content_type !== 'audio' ? (
                       <ManageAnalysis meme={meme} hideCompleted />
                     ) : undefined
                   }

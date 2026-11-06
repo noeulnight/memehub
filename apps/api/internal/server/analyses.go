@@ -100,13 +100,18 @@ func (s *Server) retryAnalysis(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	var revision int64
-	err = tx.QueryRow(r.Context(), "SELECT content_revision FROM memes WHERE id=$1 AND deleted_at IS NULL AND status='ready' FOR UPDATE", id).Scan(&revision)
+	var contentType string
+	err = tx.QueryRow(r.Context(), "SELECT content_revision,content_type FROM memes WHERE id=$1 AND deleted_at IS NULL AND status='ready' FOR UPDATE", id).Scan(&revision, &contentType)
 	if errors.Is(err, pgx.ErrNoRows) {
 		problem(w, 404, "meme_not_found")
 		return
 	}
 	if err != nil {
 		internal(w)
+		return
+	}
+	if contentType == "audio" {
+		problem(w, 422, "audio_analysis_not_supported")
 		return
 	}
 	if revision != *input.Revision {
