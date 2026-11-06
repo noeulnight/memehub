@@ -344,7 +344,15 @@ func (s *Server) listMemesFiltered(w http.ResponseWriter, r *http.Request, analy
 		}
 		limit = n
 	}
-	contentType := query.Get("content_type")
+	contentType := query.Get("type")
+	legacyType := query.Get("content_type")
+	if contentType != "" && legacyType != "" && contentType != legacyType {
+		problem(w, 400, "conflicting_content_type_filters")
+		return
+	}
+	if contentType == "" {
+		contentType = legacyType
+	}
 	if contentType != "" && contentType != "text" && contentType != "image" && contentType != "audio" {
 		problem(w, 400, "invalid_content_type")
 		return
