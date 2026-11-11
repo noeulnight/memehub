@@ -1904,11 +1904,32 @@ components:
       type: string
       enum: [sfw, nsfw, unknown]
       description: >-
-        AI classification of supplied media and text for workplace suitability.
+        Decisions API classification of supplied media and text for workplace suitability.
         Sexual content or graphic violence is nsfw. Unknown means unanalysed or
         insufficient evidence, including audio. GIF classification covers only
         the supplied first frame. Metadata edits reset the rating to unknown.
-        This field does not filter or block content.
+        Use safety_rating or reserved tag filters to filter results. NSFW previews are blurred; original media access is unchanged.
+    SafetyDecision:
+      type: object
+      additionalProperties: false
+      required: [model, request_id, confidence, input_tokens, output_tokens]
+      properties:
+        model:
+          type: string
+        request_id:
+          type: string
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        input_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        output_tokens:
+          type: integer
+          format: int64
+          minimum: 0
     AnalysisResult:
       type: object
       additionalProperties: false
@@ -1932,6 +1953,9 @@ components:
         safety_rating:
           $ref: '#/components/schemas/SafetyRating'
           description: Present in new analyses; absent from historical results.
+        safety_decision:
+          $ref: '#/components/schemas/SafetyDecision'
+          description: Classifier provenance and usage, separate from metadata analysis usage. Absent from historical results.
     Analysis:
       type: object
       additionalProperties: false

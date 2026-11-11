@@ -393,7 +393,7 @@ func TestSafetyRatingPersistsOnEveryAnalysis(t *testing.T) {
 	w, meme, _ := fixture(t, "text")
 	for _, rating := range []string{"nsfw", "sfw", "unknown"} {
 		w.Analyzer = analyzeFunc(func(context.Context, Input) (Response, error) {
-			return Response{Model: "test", Result: Result{SafetyRating: rating, Tags: []string{}}}, nil
+			return Response{Model: "test", Result: Result{SafetyRating: rating, SafetyDecision: &SafetyDecision{Model: DecisionsModel, Confidence: 0.9, InputTokens: 15}, Tags: []string{}}}, nil
 		})
 		if worked, err := w.RunOne(context.Background()); err != nil || !worked {
 			t.Fatalf("analysis: worked=%v err=%v", worked, err)
@@ -404,6 +404,11 @@ func TestSafetyRatingPersistsOnEveryAnalysis(t *testing.T) {
 		}
 		if err := w.DB.QueryRow(context.Background(), "SELECT result->>'safety_rating' FROM jobs WHERE meme_id=$1 ORDER BY created_at DESC LIMIT 1", meme).Scan(&history); err != nil || history != rating {
 			t.Fatalf("history: %q %v", history, err)
+		}
+		var classifierModel string
+		var classifierTokens int64
+		if err := w.DB.QueryRow(context.Background(), "SELECT result->'safety_decision'->>'model', (result->'safety_decision'->>'input_tokens')::bigint FROM jobs WHERE meme_id=$1 ORDER BY created_at DESC LIMIT 1", meme).Scan(&classifierModel, &classifierTokens); err != nil || classifierModel != DecisionsModel || classifierTokens != 15 {
+			t.Fatalf("classifier provenance missing: %s %d %v", classifierModel, classifierTokens, err)
 		}
 		if rating != "unknown" {
 			exec(t, w.DB, "INSERT INTO jobs(id,meme_id,type,provider,requested_model,prompt_version,input_revision) SELECT $1,id,'analyze_content','openai','test','v1',content_revision FROM memes WHERE id=$2", uuid.New(), meme)
