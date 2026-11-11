@@ -448,10 +448,17 @@ paths:
               - image
               - text
               - audio
+        - name: safety_rating
+          in: query
+          description: Optional AI safety classification filter. Unknown excludes classified items. Combines with tags, text, uploader, and collections.
+          schema:
+            $ref: '#/components/schemas/SafetyRating'
         - name: tag
           in: query
           description:
             Repeat the parameter to require every selected tag, for example tag=work&tag=monday.
+            Reserved values sfw and nsfw filter safety_rating instead of ordinary tags.
+            Conflicting safety filters return 400 conflicting_safety_filters.
             Names use NFC and ASCII lowercase normalization. Current server rejects individual
             values over 200 UTF-8 bytes.
           required: false
@@ -1741,6 +1748,7 @@ components:
         - source_note
         - status
         - analysis_status
+        - safety_rating
         - content_revision
         - created_at
         - updated_at
@@ -1800,6 +1808,8 @@ components:
           $ref: '#/components/schemas/StorageStatus'
         analysis_status:
           $ref: '#/components/schemas/AnalysisStatus'
+        safety_rating:
+          $ref: '#/components/schemas/SafetyRating'
         content_revision:
           type: integer
           format: int64
@@ -1890,6 +1900,15 @@ components:
           type: integer
           format: int64
           minimum: 0
+    SafetyRating:
+      type: string
+      enum: [sfw, nsfw, unknown]
+      description: >-
+        AI classification of supplied media and text for workplace suitability.
+        Sexual content or graphic violence is nsfw. Unknown means unanalysed or
+        insufficient evidence, including audio. GIF classification covers only
+        the supplied first frame. Metadata edits reset the rating to unknown.
+        This field does not filter or block content.
     AnalysisResult:
       type: object
       additionalProperties: false
@@ -1910,6 +1929,9 @@ components:
           description: Image OCR only; empty for text memes.
         tags:
           $ref: '#/components/schemas/TagNames'
+        safety_rating:
+          $ref: '#/components/schemas/SafetyRating'
+          description: Present in new analyses; absent from historical results.
     Analysis:
       type: object
       additionalProperties: false
@@ -2233,6 +2255,7 @@ components:
         - source_note
         - status
         - analysis_status
+        - safety_rating
         - content_revision
         - created_at
         - updated_at
@@ -2287,6 +2310,8 @@ components:
           $ref: '#/components/schemas/StorageStatus'
         analysis_status:
           $ref: '#/components/schemas/AnalysisStatus'
+        safety_rating:
+          $ref: '#/components/schemas/SafetyRating'
         content_revision:
           type: integer
           format: int64
@@ -2322,6 +2347,7 @@ components:
         - source_note
         - status
         - analysis_status
+        - safety_rating
         - content_revision
         - created_at
         - updated_at
@@ -2383,6 +2409,8 @@ components:
           $ref: '#/components/schemas/StorageStatus'
         analysis_status:
           $ref: '#/components/schemas/AnalysisStatus'
+        safety_rating:
+          $ref: '#/components/schemas/SafetyRating'
         content_revision:
           type: integer
           format: int64

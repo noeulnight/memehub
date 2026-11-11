@@ -191,3 +191,21 @@ describe('media URL lifetime', () => {
     }
   });
 });
+
+it('sends reserved safety filters independently from ordinary tags and text', async () => {
+  const api = createApi('/api');
+  api.defaults.adapter = async (config) => {
+    expect(config.params.safety_rating).toBe('nsfw');
+    expect(config.params.tag).toEqual(['work']);
+    expect(config.params.q).toBe('cat');
+    return {
+      config,
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: { items: [], next_cursor: null },
+    };
+  };
+  await listMemes(api, '#NSFW #work cat', '', null);
+  await listMemes(api, '#work cat', '', null, undefined, 'nsfw');
+});

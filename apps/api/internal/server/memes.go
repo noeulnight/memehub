@@ -37,6 +37,7 @@ type memeInput struct {
 	Revision         *int64   `json:"content_revision"`
 }
 type Meme struct {
+	SafetyRating      string    `json:"safety_rating"`
 	MIMEType          *string   `json:"mime_type"`
 	ID                uuid.UUID `json:"id"`
 	CreatedBy         uuid.UUID `json:"created_by"`
@@ -64,11 +65,11 @@ type Meme struct {
 const memeColumns = `m.id,m.created_by,m.content_type,m.title,m.body_text,m.description,m.extracted_text,m.source_url,m.source_name,m.source_author,m.source_note,m.status,m.analysis_status,m.content_revision,m.created_at,m.updated_at,
  ARRAY(SELECT t.name FROM tags t JOIN meme_tags mt ON mt.tag_id=t.id WHERE mt.meme_id=m.id ORDER BY t.normalized_name),
  (SELECT u.display_name FROM users u WHERE u.id=m.created_by),
- (SELECT u.username FROM users u WHERE u.id=m.created_by),m.width,m.height,m.mime_type`
+ (SELECT u.username FROM users u WHERE u.id=m.created_by),m.width,m.height,m.mime_type,m.safety_rating`
 
 func scanMeme(row pgx.Row) (Meme, error) {
 	var m Meme
-	err := row.Scan(&m.ID, &m.CreatedBy, &m.ContentType, &m.Title, &m.BodyText, &m.Description, &m.ExtractedText, &m.SourceURL, &m.SourceName, &m.SourceAuthor, &m.SourceNote, &m.Status, &m.AnalysisStatus, &m.Revision, &m.CreatedAt, &m.UpdatedAt, &m.Tags, &m.CreatedByName, &m.CreatedByUsername, &m.Width, &m.Height, &m.MIMEType)
+	err := row.Scan(&m.ID, &m.CreatedBy, &m.ContentType, &m.Title, &m.BodyText, &m.Description, &m.ExtractedText, &m.SourceURL, &m.SourceName, &m.SourceAuthor, &m.SourceNote, &m.Status, &m.AnalysisStatus, &m.Revision, &m.CreatedAt, &m.UpdatedAt, &m.Tags, &m.CreatedByName, &m.CreatedByUsername, &m.Width, &m.Height, &m.MIMEType, &m.SafetyRating)
 	return m, err
 }
 func nullable(value string) *string {
@@ -268,7 +269,7 @@ func (s *Server) updateMeme(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err = tx.Exec(r.Context(), `UPDATE memes SET title=$2,body_text=$3,description=$4,source_url=$5,source_name=$6,source_author=$7,source_note=$8,extracted_text=CASE WHEN content_type='image' THEN $9 ELSE extracted_text END,
- content_revision=content_revision+1,updated_at=now(),analysis_status=CASE WHEN EXISTS(SELECT 1 FROM jobs WHERE meme_id=$1 AND type='analyze_content' AND status IN ('queued','processing')) THEN analysis_status ELSE 'not_requested' END WHERE id=$1`, id, in.Title, nullable(in.BodyText), in.Description, nullable(in.SourceURL), nullable(in.SourceName), nullable(in.SourceAuthor), nullable(in.SourceNote), in.ExtractedText)
+ content_revision=content_revision+1,updated_at=now(),safety_rating='unknown',analysis_status=CASE WHEN EXISTS(SELECT 1 FROM jobs WHERE meme_id=$1 AND type='analyze_content' AND status IN ('queued','processing')) THEN analysis_status ELSE 'not_requested' END WHERE id=$1`, id, in.Title, nullable(in.BodyText), in.Description, nullable(in.SourceURL), nullable(in.SourceName), nullable(in.SourceAuthor), nullable(in.SourceNote), in.ExtractedText)
 	if err != nil {
 		internal(w)
 		return
@@ -402,6 +403,11 @@ func (s *Server) listMemesFiltered(w http.ResponseWriter, r *http.Request, analy
 		problem(w, 400, "invalid_query")
 		return
 	}
+	rating := strings.ToLower(query.Get("safety_rating"))
+	if rating != "" && rating != "sfw" && rating != "nsfw" && rating != "unknown" {
+		problem(w, 400, "invalid_safety_rating")
+		return
+	}
 	tags := []string{}
 	if len(query["tag"]) > 30 {
 		problem(w, 400, "too_many_tags")
@@ -412,9 +418,18 @@ func (s *Server) listMemesFiltered(w http.ResponseWriter, r *http.Request, analy
 			problem(w, 400, "invalid_tag")
 			return
 		}
-		tags = append(tags, normalizeTag(tag))
+		name := normalizeTag(tag)
+		if name == "sfw" || name == "nsfw" {
+			if rating != "" && rating != name {
+				problem(w, 400, "conflicting_safety_filters")
+				return
+			}
+			rating = name
+			continue
+		}
+		tags = append(tags, name)
 	}
-	args := []any{contentType, tags, username, s.cfg.OIDCIssuer, mine, analysisStatus, savedCollection, collectionOwner}
+	args := []any{contentType, tags, username, s.cfg.OIDCIssuer, mine, analysisStatus, savedCollection, collectionOwner, rating}
 	if strings.TrimSpace(q) != "" && s.embedder != nil {
 		s.searchMemes(w, r, strings.TrimSpace(q), limit, args)
 		return
@@ -438,8 +453,8 @@ func (s *Server) listMemesFiltered(w http.ResponseWriter, r *http.Request, analy
 	pattern := "%" + strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(q) + "%"
 	rows, err := s.db.Query(r.Context(), "SELECT "+memeColumns+" FROM memes m WHERE "+memeScopeSQL+`
  AND (`+memeTextSQL+`)
- AND ($11::timestamptz IS NULL OR (m.created_at,m.id)<($11,$12::uuid))
- ORDER BY m.created_at DESC,m.id DESC LIMIT $13`, append(args, pattern, q, at, id, limit+1)...)
+ AND ($12::timestamptz IS NULL OR (m.created_at,m.id)<($12,$13::uuid))
+ ORDER BY m.created_at DESC,m.id DESC LIMIT $14`, append(args, pattern, q, at, id, limit+1)...)
 	if err != nil {
 		internal(w)
 		return

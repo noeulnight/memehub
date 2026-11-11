@@ -25,27 +25,28 @@ const memeScopeSQL = `m.deleted_at IS NULL AND m.status='ready'
  AND ($3='' OR EXISTS(SELECT 1 FROM users u WHERE u.id=m.created_by AND u.oidc_issuer=$4 AND lower(u.username)=lower($3)))
  AND ($5::uuid IS NULL OR m.created_by=$5)
  AND ($6='' OR m.analysis_status=$6)
+ AND ($9='' OR m.safety_rating=$9)
  AND ($7::uuid IS NULL OR EXISTS(SELECT 1 FROM collection_memes cm JOIN collections c ON c.id=cm.collection_id
  WHERE cm.meme_id=m.id AND c.id=$7 AND c.user_id=$8))`
 
 // Normalize each field independently so matches cannot span unrelated fields.
-const normalizedTextSQL = `search_normalize($10)<>'' AND (
+const normalizedTextSQL = `search_normalize($11)<>'' AND (
  EXISTS(SELECT 1 FROM unnest(ARRAY[m.title,m.body_text,m.description,m.extracted_text,m.source_name,m.source_author]) field(value)
- WHERE strpos(search_normalize(field.value),search_normalize($10))>0)
+ WHERE strpos(search_normalize(field.value),search_normalize($11))>0)
  OR EXISTS(SELECT 1 FROM meme_tags mt JOIN tags t ON t.id=mt.tag_id
- WHERE mt.meme_id=m.id AND strpos(search_normalize(t.name),search_normalize($10))>0))`
-const memeTextSQL = `concat_ws(' ',m.title,m.body_text,m.description,m.extracted_text,m.source_name,m.source_author) ILIKE $9
- OR EXISTS(SELECT 1 FROM meme_tags mt JOIN tags t ON t.id=mt.tag_id WHERE mt.meme_id=m.id AND t.name ILIKE $9)
+ WHERE mt.meme_id=m.id AND strpos(search_normalize(t.name),search_normalize($11))>0))`
+const memeTextSQL = `concat_ws(' ',m.title,m.body_text,m.description,m.extracted_text,m.source_name,m.source_author) ILIKE $10
+ OR EXISTS(SELECT 1 FROM meme_tags mt JOIN tags t ON t.id=mt.tag_id WHERE mt.meme_id=m.id AND t.name ILIKE $10)
  OR (` + normalizedTextSQL + `)`
-const exactTextSQL = `lower(m.title)=lower($10) OR lower(m.extracted_text)=lower($10)
- OR EXISTS(SELECT 1 FROM meme_tags mt JOIN tags t ON t.id=mt.tag_id WHERE mt.meme_id=m.id AND lower(t.name)=lower($10))`
-const textPrioritySQL = `CASE WHEN search_normalize($10)='' THEN 0
- WHEN search_normalize(m.extracted_text)=search_normalize($10)
- OR EXISTS(SELECT 1 FROM meme_tags mt JOIN tags t ON t.id=mt.tag_id WHERE mt.meme_id=m.id AND search_normalize(t.name)=search_normalize($10)) THEN 4
- WHEN strpos(search_normalize(m.extracted_text),search_normalize($10))>0
- OR EXISTS(SELECT 1 FROM meme_tags mt JOIN tags t ON t.id=mt.tag_id WHERE mt.meme_id=m.id AND strpos(search_normalize(t.name),search_normalize($10))>0) THEN 3
- WHEN search_normalize(m.title)=search_normalize($10) OR search_normalize(m.body_text)=search_normalize($10) THEN 2
- WHEN strpos(search_normalize(m.title),search_normalize($10))>0 OR strpos(search_normalize(m.body_text),search_normalize($10))>0 THEN 1
+const exactTextSQL = `lower(m.title)=lower($11) OR lower(m.extracted_text)=lower($11)
+ OR EXISTS(SELECT 1 FROM meme_tags mt JOIN tags t ON t.id=mt.tag_id WHERE mt.meme_id=m.id AND lower(t.name)=lower($11))`
+const textPrioritySQL = `CASE WHEN search_normalize($11)='' THEN 0
+ WHEN search_normalize(m.extracted_text)=search_normalize($11)
+ OR EXISTS(SELECT 1 FROM meme_tags mt JOIN tags t ON t.id=mt.tag_id WHERE mt.meme_id=m.id AND search_normalize(t.name)=search_normalize($11)) THEN 4
+ WHEN strpos(search_normalize(m.extracted_text),search_normalize($11))>0
+ OR EXISTS(SELECT 1 FROM meme_tags mt JOIN tags t ON t.id=mt.tag_id WHERE mt.meme_id=m.id AND strpos(search_normalize(t.name),search_normalize($11))>0) THEN 3
+ WHEN search_normalize(m.title)=search_normalize($11) OR search_normalize(m.body_text)=search_normalize($11) THEN 2
+ WHEN strpos(search_normalize(m.title),search_normalize($11))>0 OR strpos(search_normalize(m.body_text),search_normalize($11))>0 THEN 1
  ELSE 0 END`
 
 type rankedMeme struct {
@@ -95,10 +96,10 @@ func (s *Server) candidates(ctx context.Context, q string, args []any) ([]uuid.U
 	result, embedErr := s.embedder.Embed(ctx, q)
 	if embedErr == nil && embedding.Valid(result.Vector) {
 		// Exact scan preserves full-precision ranking. Add ANN only after recall and filtered latency checks.
-		rows, err = s.db.Query(ctx, `SELECT m.id,1-(e.embedding OPERATOR(public.<=>) $9::public.vector) AS similarity
+		rows, err = s.db.Query(ctx, `SELECT m.id,1-(e.embedding OPERATOR(public.<=>) $10::public.vector) AS similarity
  FROM memes m JOIN meme_embeddings e ON e.meme_id=m.id
- WHERE `+memeScopeSQL+` AND e.content_revision=m.content_revision AND e.model=$10 AND e.input_version=$11
- ORDER BY e.embedding OPERATOR(public.<=>) $9::public.vector,m.id LIMIT 100`, append(args, embedding.Literal(result.Vector), embedding.Model, embedding.InputVersion)...)
+ WHERE `+memeScopeSQL+` AND e.content_revision=m.content_revision AND e.model=$11 AND e.input_version=$12
+ ORDER BY e.embedding OPERATOR(public.<=>) $10::public.vector,m.id LIMIT 100`, append(args, embedding.Literal(result.Vector), embedding.Model, embedding.InputVersion)...)
 		if err != nil {
 			return nil, err
 		}
@@ -199,8 +200,8 @@ func (s *Server) searchMemes(w http.ResponseWriter, r *http.Request, q string, l
 		return
 	}
 	// Reapply current visibility and collection membership, including removals after the first page.
-	rows, err := s.db.Query(ctx, `SELECT `+memeColumns+`,p.ordinality FROM unnest($9::uuid[]) WITH ORDINALITY p(id,ordinality)
- JOIN memes m ON m.id=p.id WHERE `+memeScopeSQL+` AND p.ordinality>$10 ORDER BY p.ordinality LIMIT $11`, append(args, ids, c.Offset, limit+1)...)
+	rows, err := s.db.Query(ctx, `SELECT `+memeColumns+`,p.ordinality FROM unnest($10::uuid[]) WITH ORDINALITY p(id,ordinality)
+ JOIN memes m ON m.id=p.id WHERE `+memeScopeSQL+` AND p.ordinality>$11 ORDER BY p.ordinality LIMIT $12`, append(args, ids, c.Offset, limit+1)...)
 	if err != nil {
 		internal(w)
 		return
@@ -212,7 +213,7 @@ func (s *Server) searchMemes(w http.ResponseWriter, r *http.Request, q string, l
 	for rows.Next() {
 		var m Meme
 		var ordinal int64
-		err = rows.Scan(&m.ID, &m.CreatedBy, &m.ContentType, &m.Title, &m.BodyText, &m.Description, &m.ExtractedText, &m.SourceURL, &m.SourceName, &m.SourceAuthor, &m.SourceNote, &m.Status, &m.AnalysisStatus, &m.Revision, &m.CreatedAt, &m.UpdatedAt, &m.Tags, &m.CreatedByName, &m.CreatedByUsername, &m.Width, &m.Height, &m.MIMEType, &ordinal)
+		err = rows.Scan(&m.ID, &m.CreatedBy, &m.ContentType, &m.Title, &m.BodyText, &m.Description, &m.ExtractedText, &m.SourceURL, &m.SourceName, &m.SourceAuthor, &m.SourceNote, &m.Status, &m.AnalysisStatus, &m.Revision, &m.CreatedAt, &m.UpdatedAt, &m.Tags, &m.CreatedByName, &m.CreatedByUsername, &m.Width, &m.Height, &m.MIMEType, &m.SafetyRating, &ordinal)
 		if err != nil {
 			internal(w)
 			return

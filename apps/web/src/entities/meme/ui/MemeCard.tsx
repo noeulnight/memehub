@@ -15,6 +15,7 @@ import { MemeSave } from './MemeSave';
 import { Skeleton } from '../../../shared/ui/skeleton';
 import { Button } from '../../../shared/ui/button';
 import { AudioIcon, DetailsIcon } from '../../../shared/ui/icons';
+import { SafetyPreview } from './SafetyPreview';
 import { HoverPreview } from '../../../shared/ui/hover-preview';
 
 function ImagePreview({
@@ -135,6 +136,10 @@ export function MemeCard({
   onClose?: () => void;
 }) {
   const [open, setOpen] = useState(detailOnly);
+  const [revealed, setRevealed] = useState('');
+  const safetyKey = `${meme.id}:${meme.content_revision}:${meme.safety_rating}`;
+  const hidden = meme.safety_rating === 'nsfw' && revealed !== safetyKey;
+  const reveal = () => setRevealed(safetyKey);
   const [busy, setBusy] = useState(false);
   const [actionsTarget, setActionsTarget] = useState<HTMLDivElement | null>(null);
   const [hovered, setHovered] = useState(false);
@@ -193,14 +198,38 @@ export function MemeCard({
             })}
           </time>
         </p>
-        {meme.description && (
-          <p className="whitespace-pre-wrap text-sm text-muted-foreground">{meme.description}</p>
-        )}
-        {meme.content_type === 'text' && (
-          <p className="whitespace-pre-wrap text-sm leading-relaxed">{meme.body_text}</p>
+        {(meme.description || meme.content_type === 'text') && (
+          <SafetyPreview
+            hidden={hidden}
+            onReveal={reveal}
+            showControl={meme.content_type === 'text'}
+          >
+            <div className="space-y-5">
+              {meme.description && (
+                <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+                  {meme.description}
+                </p>
+              )}
+              {meme.content_type === 'text' && (
+                <p className="whitespace-pre-wrap text-sm leading-relaxed">{meme.body_text}</p>
+              )}
+            </div>
+          </SafetyPreview>
         )}
         <section aria-label="Tags" className="space-y-2">
           <h3 className="text-xs font-medium text-muted-foreground">Tags</h3>
+          {(meme.safety_rating === 'sfw' || meme.safety_rating === 'nsfw') && (
+            <button
+              type="button"
+              className="text-xs text-muted-foreground hover:underline"
+              onClick={() => {
+                changeOpen(false);
+                onTagSearch(meme.safety_rating!);
+              }}
+            >
+              {meme.safety_rating.toUpperCase()}
+            </button>
+          )}
           {meme.tags.length ? (
             <ul className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
               {meme.tags.map((tag) => (
@@ -223,10 +252,12 @@ export function MemeCard({
           )}
         </section>
         {meme.extracted_text && (
-          <section className="space-y-2">
-            <h3 className="text-xs font-medium text-muted-foreground">Extracted text</h3>
-            <p className="whitespace-pre-wrap text-sm">{meme.extracted_text}</p>
-          </section>
+          <SafetyPreview hidden={hidden} onReveal={reveal} showControl={false}>
+            <section className="space-y-2">
+              <h3 className="text-xs font-medium text-muted-foreground">Extracted text</h3>
+              <p className="whitespace-pre-wrap text-sm">{meme.extracted_text}</p>
+            </section>
+          </SafetyPreview>
         )}
         {(meme.source_name || meme.source_author || meme.source_url) && (
           <section className="space-y-2">
@@ -284,24 +315,26 @@ export function MemeCard({
               className="meme-card min-w-0"
               style={{ animationDelay: `${Math.min(index, 8) * 25}ms` }}
             >
-              <MemeCardInteraction
-                meme={meme}
-                onDetails={() => changeOpen(true)}
-                onSave={onSave}
-                optionsTarget={actionsTarget}
-                hovered={hovered}
-                onOptionsChange={setOptionsVisible}
-              >
-                <div className="meme-visual pointer-events-none bg-background">
-                  {meme.content_type === 'image' ? (
-                    <ImagePreview meme={meme} eager={index < 24} />
-                  ) : (
-                    <p className="line-clamp-6 whitespace-pre-wrap break-words text-sm leading-snug">
-                      {meme.body_text}
-                    </p>
-                  )}
-                </div>
-              </MemeCardInteraction>
+              <SafetyPreview hidden={hidden} onReveal={reveal}>
+                <MemeCardInteraction
+                  meme={meme}
+                  onDetails={() => changeOpen(true)}
+                  onSave={onSave}
+                  optionsTarget={actionsTarget}
+                  hovered={hovered}
+                  onOptionsChange={setOptionsVisible}
+                >
+                  <div className="meme-visual pointer-events-none bg-background">
+                    {meme.content_type === 'image' ? (
+                      <ImagePreview meme={meme} eager={index < 24} />
+                    ) : (
+                      <p className="line-clamp-6 whitespace-pre-wrap break-words text-sm leading-snug">
+                        {meme.body_text}
+                      </p>
+                    )}
+                  </div>
+                </MemeCardInteraction>
+              </SafetyPreview>
             </article>
           </HoverPreview>
         ))}
@@ -318,7 +351,9 @@ export function MemeCard({
         >
           {meme.content_type === 'image' && (
             <div className="flex min-h-0 min-w-0 items-center justify-center overflow-hidden p-6">
-              <ImagePreview meme={meme} full />
+              <SafetyPreview hidden={hidden} onReveal={reveal} full>
+                <ImagePreview meme={meme} full />
+              </SafetyPreview>
             </div>
           )}
           {manage ? (

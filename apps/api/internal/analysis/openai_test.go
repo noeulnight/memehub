@@ -48,7 +48,7 @@ func TestOpenAIRequestAndStructuredResult(t *testing.T) {
 					t.Error("missing image")
 				}
 				w.Header().Set("x-request-id", "req_test")
-				json.NewEncoder(w).Encode(map[string]any{"status": "completed", "model": "response-model", "usage": map[string]int{"input_tokens": 12, "output_tokens": 20}, "output": []any{map[string]any{"content": []any{map[string]string{"type": "output_text", "text": `{"title":"제목","description":"설명","extracted_text":"","tags":[" Cat ","cat","웃음"]}`}}}}})
+				json.NewEncoder(w).Encode(map[string]any{"status": "completed", "model": "response-model", "usage": map[string]int{"input_tokens": 12, "output_tokens": 20}, "output": []any{map[string]any{"content": []any{map[string]string{"type": "output_text", "text": `{"title":"제목","description":"설명","extracted_text":"","tags":[" Cat ","cat","웃음"],"safety_rating":"sfw"}`}}}}})
 			}))
 			defer server.Close()
 			client := NewClient("secret", time.Second)
@@ -57,7 +57,7 @@ func TestOpenAIRequestAndStructuredResult(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if response.Model != "response-model" || response.RequestID != "req_test" || response.InputTokens != 12 || len(response.Result.Tags) != 2 || response.Result.Tags[0] != "Cat" {
+			if response.Model != "response-model" || response.RequestID != "req_test" || response.InputTokens != 12 || response.Result.SafetyRating != "sfw" || len(response.Result.Tags) != 2 || response.Result.Tags[0] != "Cat" {
 				t.Fatalf("unexpected response: %+v", response)
 			}
 		})
@@ -95,8 +95,38 @@ func TestOpenAIFailures(t *testing.T) {
 		})
 	}
 	for _, result := range []Result{{Title: strings.Repeat("한", 201), Tags: []string{}}, {Tags: []string{""}}, {Tags: []string{strings.Repeat("x", 51)}}, {ExtractedText: "invented OCR", Tags: []string{}}, {Tags: nil}} {
+		result.SafetyRating = "sfw"
 		if result.validate("text") == nil {
 			t.Fatal("invalid output accepted")
 		}
+	}
+}
+
+func TestOpenAISafetyRating(t *testing.T) {
+	for _, rating := range []string{`"sfw"`, `"nsfw"`, `"unknown"`, `"safe"`, `""`, `null`, ``} {
+		t.Run(rating, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				result := `{"title":"Title","description":"","extracted_text":"","tags":[]`
+				if rating != "" {
+					result += `,"safety_rating":` + rating
+				}
+				result += `}`
+				json.NewEncoder(w).Encode(map[string]any{"status": "completed", "model": "test-model", "output": []any{map[string]any{"content": []any{map[string]string{"type": "output_text", "text": result}}}}})
+			}))
+			defer server.Close()
+			client := NewClient("secret", time.Second)
+			client.endpoint = server.URL
+			res, err := client.Analyze(context.Background(), Input{ContentType: "text", Model: "test-model", Body: "evidence"})
+			valid := rating == `"sfw"` || rating == `"nsfw"` || rating == `"unknown"`
+			if valid && (err != nil || `"`+res.Result.SafetyRating+`"` != rating) {
+				t.Fatalf("valid rating lost: %+v %v", res, err)
+			}
+			if !valid {
+				code, retry := failureDetails(err)
+				if err == nil || code != "invalid_analysis_result" || retry {
+					t.Fatalf("invalid rating accepted: %+v %v", res, err)
+				}
+			}
+		})
 	}
 }
