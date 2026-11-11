@@ -8,6 +8,7 @@ export type Meme = {
   created_at: string;
   mime_type?: string | null;
   content_type: 'text' | 'image' | 'audio';
+  safety_rating?: 'sfw' | 'nsfw' | 'unknown';
   analysis_status: 'not_requested' | 'queued' | 'processing' | 'completed' | 'failed';
   width?: number | null;
   height?: number | null;

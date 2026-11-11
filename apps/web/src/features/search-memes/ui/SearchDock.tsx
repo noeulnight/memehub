@@ -9,6 +9,7 @@ import {
   CommandEmpty,
 } from '../../../shared/ui/command';
 import { UserIcon } from '../../../shared/ui/icons';
+import { reservedSafety } from '../../../entities/meme';
 import { getSuggestions, type Suggestion } from '../api/suggestions';
 import { searchCompletion, applyCompletion } from '../model/completion';
 
@@ -80,6 +81,18 @@ export function SearchDock({
       searchInput.current?.setSelectionRange(next.caret, next.caret);
     });
   }
+  const reserved =
+    kind === 'tag'
+      ? ['sfw', 'nsfw']
+          .filter((value) => value.startsWith((prefix || '').toLowerCase()))
+          .map((value) => ({ value, label: `${value.toUpperCase()} filter` }))
+      : [];
+  const candidates = [
+    ...reserved,
+    ...(ready ? suggestions.data || [] : []).filter(
+      (item) => kind !== 'tag' || !reservedSafety(item.value),
+    ),
+  ];
   return (
     <form
       role="search"
@@ -125,7 +138,7 @@ export function SearchDock({
             if (event.key === 'ArrowDown' || event.key === 'ArrowUp') setDismissed(null);
           }}
           aria-expanded={open}
-          placeholder="Search, @user, #tag"
+          placeholder="Search, @user, #tag, #sfw"
           autoComplete="off"
           className="h-8 rounded-none px-0 py-0 shadow-none focus-visible:ring-0"
         />
@@ -138,25 +151,24 @@ export function SearchDock({
                   ? 'Suggestions unavailable.'
                   : 'No matches.'}
             </CommandEmpty>
-            {ready &&
-              suggestions.data?.map((item) => (
-                <CommandItem
-                  key={item.value}
-                  value={item.value}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onSelect={() => choose(item)}
-                >
-                  {kind === 'user' && <UserIcon aria-hidden="true" />}
-                  <span className="min-w-0 flex-1 truncate">
-                    {kind === 'user' ? `@${item.value}` : item.value}
+            {candidates.map((item) => (
+              <CommandItem
+                key={item.value}
+                value={item.value}
+                onMouseDown={(event) => event.preventDefault()}
+                onSelect={() => choose(item)}
+              >
+                {kind === 'user' && <UserIcon aria-hidden="true" />}
+                <span className="min-w-0 flex-1 truncate">
+                  {kind === 'user' ? `@${item.value}` : item.value}
+                </span>
+                {item.label !== item.value && (
+                  <span className="max-w-28 truncate text-xs text-muted-foreground">
+                    {item.label}
                   </span>
-                  {kind === 'user' && item.label !== item.value && (
-                    <span className="max-w-28 truncate text-xs text-muted-foreground">
-                      {item.label}
-                    </span>
-                  )}
-                </CommandItem>
-              ))}
+                )}
+              </CommandItem>
+            ))}
           </CommandList>
         )}
       </Command>

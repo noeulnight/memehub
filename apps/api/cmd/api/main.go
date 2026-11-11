@@ -67,7 +67,7 @@ func run() error {
 		defer func() { cancel(); <-cleanupDone }()
 	}
 	if cfg.OpenAIAPIKey != "" {
-		worker := &analysis.Worker{DB: pool, Analyzer: analysis.NewClient(cfg.OpenAIAPIKey, cfg.OpenAITimeout), Timeout: cfg.OpenAITimeout, MaxImageBytes: cfg.UploadMaxBytes}
+		worker := &analysis.Worker{DB: pool, Analyzer: analysis.NewPipeline(cfg.OpenAIAPIKey, cfg.OpenAITimeout), Timeout: cfg.OpenAITimeout, MaxImageBytes: cfg.UploadMaxBytes}
 		if store != nil {
 			worker.Store = store
 		}

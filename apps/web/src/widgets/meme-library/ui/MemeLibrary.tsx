@@ -276,19 +276,21 @@ export function MemeLibrary() {
         />
       )}
       <div className="search-dock fixed left-1/2 z-20 flex w-[calc(100%_-_32px)] max-w-[468px] -translate-x-1/2 items-center gap-2">
-        {(mine || collectionId) && (
-          <Button
-            variant="secondary"
-            size="xs"
-            className="absolute bottom-full left-0 mb-2 max-w-full rounded-full"
-            onClick={() => updateSearch(query, filter, tag, false, '')}
-          >
-            <span className="truncate">
-              {collectionId ? selectedCollection.data?.name || 'Collection' : 'My memes'}
-            </span>{' '}
-            <CloseIcon aria-hidden="true" />
-          </Button>
-        )}
+        <div className="absolute bottom-full left-0 right-0 mb-2 flex flex-wrap items-center gap-2">
+          {(mine || collectionId) && (
+            <Button
+              variant="secondary"
+              size="xs"
+              className="max-w-full rounded-full"
+              onClick={() => updateSearch(query, filter, tag, false, '')}
+            >
+              <span className="truncate">
+                {collectionId ? selectedCollection.data?.name || 'Collection' : 'My memes'}
+              </span>{' '}
+              <CloseIcon aria-hidden="true" />
+            </Button>
+          )}
+        </div>
         <SearchDock
           query={tag ? formatTagToken(tag) : query}
           onSearch={(value) =>

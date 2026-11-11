@@ -1,7 +1,7 @@
 import { queryOptions, useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import type { AxiosInstance } from 'axios';
 import { useApi } from '../../../shared/api/client';
-import { parseMemeSearch } from '../model/search';
+import { parseMemeSearch, reservedSafety } from '../model/search';
 import type { ContentFilter, MemePage } from '../model/types';
 
 export async function listMemes(
@@ -20,7 +20,8 @@ export async function listMemes(
     paramsSerializer: { indexes: null },
     params: {
       limit: 24,
-      tag: [...new Set([tag, ...search.tags].filter(Boolean))],
+      tag: [...new Set([reservedSafety(tag) ? '' : tag, ...search.tags].filter(Boolean))],
+      safety_rating: reservedSafety(tag) || search.safetyRating || undefined,
       q: search.text || undefined,
       uploader: search.uploader || undefined,
       mine: mine || undefined,

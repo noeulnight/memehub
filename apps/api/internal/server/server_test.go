@@ -371,6 +371,15 @@ func TestMemeManagementPermissions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if _, err = pool.Exec(context.Background(), "UPDATE memes SET safety_rating='nsfw' WHERE id=$1", id); err != nil {
+				t.Fatal(err)
+			}
+			before := request(t, h, "GET", "/api/memes/"+id.String(), nil, nil, "")
+			mustStatus(t, before, 200)
+			var classified Meme
+			if err = json.Unmarshal(before.Body.Bytes(), &classified); err != nil || classified.SafetyRating != "nsfw" {
+				t.Fatal("classification missing from detail")
+			}
 			path := "/api/memes/" + id.String()
 			input := map[string]any{"content_type": kind, "title": "Edited", "content_revision": 0, "tags": []string{"Exact tag"}}
 			if kind == "text" {
@@ -389,7 +398,7 @@ func TestMemeManagementPermissions(t *testing.T) {
 			updated := request(t, h, "PUT", path, input, admin, adminCSRF)
 			mustStatus(t, updated, 200)
 			var meme Meme
-			if err = json.Unmarshal(updated.Body.Bytes(), &meme); err != nil || meme.Revision != 2 || len(meme.Tags) != 1 || meme.Tags[0] != "Exacttag" {
+			if err = json.Unmarshal(updated.Body.Bytes(), &meme); err != nil || meme.Revision != 2 || meme.SafetyRating != "unknown" || len(meme.Tags) != 1 || meme.Tags[0] != "Exacttag" {
 				t.Fatal("edit did not preserve fields and revision")
 			}
 			if kind == "image" && (meme.BodyText != nil || meme.ExtractedText != "Read from image") {
@@ -406,7 +415,7 @@ func TestMemeManagementPermissions(t *testing.T) {
 			var page struct {
 				Items []Meme `json:"items"`
 			}
-			if err = json.Unmarshal(filtered.Body.Bytes(), &page); err != nil || len(page.Items) != 1 || page.Items[0].ID != id {
+			if err = json.Unmarshal(filtered.Body.Bytes(), &page); err != nil || len(page.Items) != 1 || page.Items[0].ID != id || page.Items[0].SafetyRating != "unknown" {
 				t.Fatal("exact tag filter failed")
 			}
 			if _, err = pool.Exec(context.Background(), "UPDATE users SET is_admin=false WHERE oidc_subject='admin'"); err != nil {

@@ -81,7 +81,7 @@ func fixture(t *testing.T, kind string) (*Worker, uuid.UUID, uuid.UUID) {
 	}
 	exec(t, db, "INSERT INTO jobs(id,meme_id,type,input_revision,provider,requested_model,prompt_version) VALUES($1,$2,'analyze_content',0,'openai','test-model','v1')", job, meme)
 	w := &Worker{DB: db, Timeout: time.Second, MaxImageBytes: 1024, Analyzer: analyzeFunc(func(ctx context.Context, input Input) (Response, error) {
-		return Response{Result: Result{Title: "AI title", Description: "AI description", Tags: []string{"cat", "웃음"}}, Model: "response-model", RequestID: "req_test", InputTokens: 10, OutputTokens: 20}, nil
+		return Response{Result: Result{SafetyRating: "sfw", Title: "AI title", Description: "AI description", Tags: []string{"cat", "웃음"}}, Model: "response-model", RequestID: "req_test", InputTokens: 10, OutputTokens: 20}, nil
 	})}
 	return w, meme, job
 }
@@ -101,7 +101,7 @@ func TestImageAnalysisPreservesManualContent(t *testing.T) {
 		if input.MIME != "image/png" || len(input.Image) != 8 || input.Model != "test-model" {
 			t.Error("missing image input")
 		}
-		return Response{Result: Result{Title: "AI title", Description: "AI description", ExtractedText: "visible text", Tags: []string{"cat", "웃음"}}, Model: "response-model", InputTokens: 10, OutputTokens: 20}, nil
+		return Response{Result: Result{SafetyRating: "sfw", Title: "AI title", Description: "AI description", ExtractedText: "visible text", Tags: []string{"cat", "웃음"}}, Model: "response-model", InputTokens: 10, OutputTokens: 20}, nil
 	})
 	if worked, err := w.RunOne(context.Background()); err != nil || !worked {
 		t.Fatalf("run: %v", err)
@@ -133,7 +133,7 @@ func TestTextAnalysisAndConcurrentClaims(t *testing.T) {
 		if input.Body != "original body" {
 			t.Error("missing body")
 		}
-		return Response{Result: Result{Title: "Title", Description: "Description", Tags: []string{"tag"}}, Model: "test"}, nil
+		return Response{Result: Result{SafetyRating: "sfw", Title: "Title", Description: "Description", Tags: []string{"tag"}}, Model: "test"}, nil
 	})
 	done := make(chan error, 2)
 	for range 2 {
@@ -166,16 +166,16 @@ func TestAnalysisConflictAndDeletion(t *testing.T) {
 				} else {
 					exec(t, w.DB, "UPDATE memes SET title='User edit',content_revision=content_revision+1 WHERE id=$1", meme)
 				}
-				return Response{Result: Result{Title: "AI title", Tags: []string{"AI tag"}}, Model: "test"}, nil
+				return Response{Result: Result{SafetyRating: "sfw", Title: "AI title", Tags: []string{"AI tag"}}, Model: "test"}, nil
 			})
 			if _, err := w.RunOne(context.Background()); err != nil {
 				t.Fatal(err)
 			}
-			var title, status string
+			var title, status, rating string
 			var count int
-			w.DB.QueryRow(context.Background(), "SELECT title,analysis_status FROM memes WHERE id=$1", meme).Scan(&title, &status)
+			w.DB.QueryRow(context.Background(), "SELECT title,analysis_status,safety_rating FROM memes WHERE id=$1", meme).Scan(&title, &status, &rating)
 			w.DB.QueryRow(context.Background(), "SELECT count(*) FROM meme_tags WHERE meme_id=$1", meme).Scan(&count)
-			if count != 0 || (!deleted && (title != "User edit" || status != "not_requested")) {
+			if rating != "unknown" || count != 0 || (!deleted && (title != "User edit" || status != "not_requested")) {
 				t.Fatal("stale result applied")
 			}
 			w.DB.QueryRow(context.Background(), "SELECT status FROM jobs WHERE id=$1 AND result IS NOT NULL", job).Scan(&status)
@@ -220,7 +220,7 @@ func TestAnalysisRetryAndLeaseRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response := Response{Result: Result{Title: "Recovered", Tags: []string{}}, Model: "test"}
+	response := Response{Result: Result{SafetyRating: "sfw", Title: "Recovered", Tags: []string{}}, Model: "test"}
 	if err = w.complete(context.Background(), old, response); !errors.Is(err, ErrLeaseLost) {
 		t.Fatal("late result accepted")
 	}
@@ -267,7 +267,7 @@ func TestClaimSnapshotsCurrentRevision(t *testing.T) {
 		if input.Body != "latest body" {
 			t.Error("analysis input was stale")
 		}
-		return Response{Result: Result{Title: "Current result", Tags: []string{}}, Model: "test"}, nil
+		return Response{Result: Result{SafetyRating: "sfw", Title: "Current result", Tags: []string{}}, Model: "test"}, nil
 	})
 	if _, err := w.RunOne(context.Background()); err != nil {
 		t.Fatal(err)
@@ -337,7 +337,7 @@ func TestGIFAnalysisUsesStaticPreview(t *testing.T) {
 		if input.MIME != "image/png" {
 			t.Error("unexpected analysis format")
 		}
-		return Response{Result: Result{Tags: []string{"움짤"}}, Model: "test"}, nil
+		return Response{Result: Result{SafetyRating: "sfw", Tags: []string{"움짤"}}, Model: "test"}, nil
 	})
 	if _, err := w.RunOne(context.Background()); err != nil {
 		t.Fatal(err)
@@ -386,5 +386,32 @@ func TestRunStopsWhenAlreadyCancelled(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("idle worker did not stop")
+	}
+}
+
+func TestSafetyRatingPersistsOnEveryAnalysis(t *testing.T) {
+	w, meme, _ := fixture(t, "text")
+	for _, rating := range []string{"nsfw", "sfw", "unknown"} {
+		w.Analyzer = analyzeFunc(func(context.Context, Input) (Response, error) {
+			return Response{Model: "test", Result: Result{SafetyRating: rating, SafetyDecision: &SafetyDecision{Model: DecisionsModel, Confidence: 0.9, InputTokens: 15}, Tags: []string{}}}, nil
+		})
+		if worked, err := w.RunOne(context.Background()); err != nil || !worked {
+			t.Fatalf("analysis: worked=%v err=%v", worked, err)
+		}
+		var stored, history string
+		if err := w.DB.QueryRow(context.Background(), "SELECT safety_rating FROM memes WHERE id=$1", meme).Scan(&stored); err != nil || stored != rating {
+			t.Fatalf("rating: %q %v", stored, err)
+		}
+		if err := w.DB.QueryRow(context.Background(), "SELECT result->>'safety_rating' FROM jobs WHERE meme_id=$1 ORDER BY created_at DESC LIMIT 1", meme).Scan(&history); err != nil || history != rating {
+			t.Fatalf("history: %q %v", history, err)
+		}
+		var classifierModel string
+		var classifierTokens int64
+		if err := w.DB.QueryRow(context.Background(), "SELECT result->'safety_decision'->>'model', (result->'safety_decision'->>'input_tokens')::bigint FROM jobs WHERE meme_id=$1 ORDER BY created_at DESC LIMIT 1", meme).Scan(&classifierModel, &classifierTokens); err != nil || classifierModel != DecisionsModel || classifierTokens != 15 {
+			t.Fatalf("classifier provenance missing: %s %d %v", classifierModel, classifierTokens, err)
+		}
+		if rating != "unknown" {
+			exec(t, w.DB, "INSERT INTO jobs(id,meme_id,type,provider,requested_model,prompt_version,input_revision) SELECT $1,id,'analyze_content','openai','test','v1',content_revision FROM memes WHERE id=$2", uuid.New(), meme)
+		}
 	}
 }

@@ -164,6 +164,12 @@ func (w *Worker) complete(ctx context.Context, j job, response Response) error {
 		if revision != j.Revision {
 			analysisStatus = "not_requested"
 		}
+		if revision == j.Revision {
+			_, err = tx.Exec(ctx, "UPDATE memes SET safety_rating=$2 WHERE id=$1", j.MemeID, response.Result.SafetyRating)
+			if err != nil {
+				return err
+			}
+		}
 		if first && revision == j.Revision {
 			changed := false
 			for _, rawName := range response.Result.Tags {

@@ -26,10 +26,12 @@ type Input struct {
 }
 
 type Result struct {
-	Title         string   `json:"title"`
-	Description   string   `json:"description"`
-	ExtractedText string   `json:"extracted_text"`
-	Tags          []string `json:"tags"`
+	SafetyDecision *SafetyDecision `json:"safety_decision,omitempty"`
+	SafetyRating   string          `json:"safety_rating"`
+	Title          string          `json:"title"`
+	Description    string          `json:"description"`
+	ExtractedText  string          `json:"extracted_text"`
+	Tags           []string        `json:"tags"`
 }
 
 type Response struct {
@@ -48,6 +50,9 @@ func (e *Failure) Error() string { return e.Code }
 func failure(code string, retry bool) error { return &Failure{Code: code, Retryable: retry} }
 
 func (r *Result) validate(contentType string) error {
+	if r.SafetyRating != "sfw" && r.SafetyRating != "nsfw" && r.SafetyRating != "unknown" {
+		return failure("invalid_analysis_result", false)
+	}
 	for _, field := range []struct {
 		value string
 		limit int
@@ -95,16 +100,9 @@ func (c *Client) Analyze(ctx context.Context, input Input) (Response, error) {
 	if c.key == "" {
 		return Response{}, failure("openai_not_configured", false)
 	}
-	metadata, err := json.Marshal(input)
+	content, err := analysisContent(input)
 	if err != nil {
-		return Response{}, failure("invalid_analysis_input", false)
-	}
-	content := []map[string]any{{"type": "input_text", "text": string(metadata)}}
-	if input.ContentType == "image" {
-		if len(input.Image) == 0 || (input.MIME != "image/jpeg" && input.MIME != "image/png" && input.MIME != "image/webp") {
-			return Response{}, failure("invalid_analysis_image", false)
-		}
-		content = append(content, map[string]any{"type": "input_image", "image_url": "data:" + input.MIME + ";base64," + base64.StdEncoding.EncodeToString(input.Image), "detail": "auto"})
+		return Response{}, err
 	}
 	payload, err := json.Marshal(map[string]any{
 		"model": input.Model, "store": false, "instructions": instructions, "max_output_tokens": 4096,
@@ -114,31 +112,9 @@ func (c *Client) Analyze(ctx context.Context, input Input) (Response, error) {
 	if err != nil {
 		return Response{}, failure("invalid_analysis_input", false)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(payload))
+	raw, requestID, err := c.request(ctx, c.endpoint, payload)
 	if err != nil {
-		return Response{}, failure("openai_request_failed", false)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.key)
-	req.Header.Set("Content-Type", "application/json")
-	res, err := c.http.Do(req)
-	if err != nil {
-		return Response{}, failure("openai_unavailable", true)
-	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		code, retry := "openai_request_rejected", false
-		if res.StatusCode == 429 {
-			code, retry = "openai_rate_limited", true
-		} else if res.StatusCode >= 500 || res.StatusCode == 408 {
-			code, retry = "openai_unavailable", true
-		} else if res.StatusCode == 401 || res.StatusCode == 403 {
-			code = "openai_auth_failed"
-		}
-		return Response{}, failure(code, retry)
-	}
-	raw, err := io.ReadAll(io.LimitReader(res.Body, (1<<20)+1))
-	if err != nil || len(raw) > 1<<20 {
-		return Response{}, failure("invalid_openai_response", false)
+		return Response{}, err
 	}
 	var output struct {
 		Status string `json:"status"`
@@ -184,10 +160,61 @@ func (c *Client) Analyze(ctx context.Context, input Input) (Response, error) {
 			return Response{}, failure("invalid_analysis_result", false)
 		}
 	}
+	// Metadata generation never determines the safety classification.
+	result.SafetyRating = "unknown"
+	result.SafetyDecision = nil
 	if err = result.validate(input.ContentType); err != nil {
 		return Response{}, err
 	}
-	return Response{Result: result, Model: output.Model, RequestID: res.Header.Get("x-request-id"), InputTokens: output.Usage.Input, OutputTokens: output.Usage.Output}, nil
+	return Response{Result: result, Model: output.Model, RequestID: requestID, InputTokens: output.Usage.Input, OutputTokens: output.Usage.Output}, nil
+}
+
+func analysisContent(input Input) ([]map[string]any, error) {
+	if input.ContentType != "image" && input.ContentType != "text" {
+		return nil, failure("invalid_analysis_input", false)
+	}
+	metadata, err := json.Marshal(input)
+	if err != nil {
+		return nil, failure("invalid_analysis_input", false)
+	}
+	content := []map[string]any{{"type": "input_text", "text": string(metadata)}}
+	if input.ContentType == "image" {
+		if len(input.Image) == 0 || (input.MIME != "image/jpeg" && input.MIME != "image/png" && input.MIME != "image/webp") {
+			return nil, failure("invalid_analysis_image", false)
+		}
+		content = append(content, map[string]any{"type": "input_image", "image_url": "data:" + input.MIME + ";base64," + base64.StdEncoding.EncodeToString(input.Image), "detail": "auto"})
+	}
+	return content, nil
+}
+
+func (c *Client) request(ctx context.Context, endpoint string, payload []byte) ([]byte, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return nil, "", failure("openai_request_failed", false)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.key)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := c.http.Do(req)
+	if err != nil {
+		return nil, "", failure("openai_unavailable", true)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		code, retry := "openai_request_rejected", false
+		if res.StatusCode == 429 {
+			code, retry = "openai_rate_limited", true
+		} else if res.StatusCode >= 500 || res.StatusCode == 408 {
+			code, retry = "openai_unavailable", true
+		} else if res.StatusCode == 401 || res.StatusCode == 403 {
+			code = "openai_auth_failed"
+		}
+		return nil, "", failure(code, retry)
+	}
+	raw, err := io.ReadAll(io.LimitReader(res.Body, (1<<20)+1))
+	if err != nil || len(raw) > 1<<20 {
+		return nil, "", failure("invalid_openai_response", false)
+	}
+	return raw, res.Header.Get("x-request-id"), nil
 }
 
 func failureDetails(err error) (string, bool) {

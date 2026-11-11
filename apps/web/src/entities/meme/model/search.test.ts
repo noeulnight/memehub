@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { parseMemeSearch, formatTagToken } from './search';
+import { parseMemeSearch, formatTagToken, withSafetyFilter } from './search';
 
 describe('uploader search', () => {
   it('separates an uploader from optional free text', () => {
@@ -44,4 +44,23 @@ it('removes tag whitespace while preserving ordinary search text', () => {
     tags: ['감정표현'],
     text: '오늘 기분',
   });
+});
+
+it('prioritizes reserved safety tokens over tags and uses the last token', () => {
+  expect(parseMemeSearch('@noeul #work #NSFW cat')).toEqual({
+    uploader: 'noeul',
+    tags: ['work'],
+    text: 'cat',
+    safetyRating: 'nsfw',
+  });
+  expect(parseMemeSearch('#nsfw sfw').safetyRating).toBe('sfw');
+  expect(parseMemeSearch('sfw #nsfw').safetyRating).toBe('nsfw');
+  expect(parseMemeSearch('#"SFW"').tags).toEqual([]);
+  expect(parseMemeSearch('#sfwcat nsfwish').text).toBe('nsfwish');
+  expect(parseMemeSearch('#sfwcat').tags).toEqual(['sfwcat']);
+});
+
+it('switches safety filters without losing uploader, tags or free text', () => {
+  expect(withSafetyFilter('@noeul #work cat #nsfw', 'sfw')).toBe('@noeul #work cat #sfw');
+  expect(withSafetyFilter('#sfw cat', '')).toBe('cat');
 });

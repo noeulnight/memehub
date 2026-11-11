@@ -57,7 +57,7 @@ func TestOpenAIRequestAndStructuredResult(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if response.Model != "response-model" || response.RequestID != "req_test" || response.InputTokens != 12 || len(response.Result.Tags) != 2 || response.Result.Tags[0] != "Cat" {
+			if response.Model != "response-model" || response.RequestID != "req_test" || response.InputTokens != 12 || response.Result.SafetyRating != "unknown" || len(response.Result.Tags) != 2 || response.Result.Tags[0] != "Cat" {
 				t.Fatalf("unexpected response: %+v", response)
 			}
 		})
@@ -95,6 +95,7 @@ func TestOpenAIFailures(t *testing.T) {
 		})
 	}
 	for _, result := range []Result{{Title: strings.Repeat("한", 201), Tags: []string{}}, {Tags: []string{""}}, {Tags: []string{strings.Repeat("x", 51)}}, {ExtractedText: "invented OCR", Tags: []string{}}, {Tags: nil}} {
+		result.SafetyRating = "sfw"
 		if result.validate("text") == nil {
 			t.Fatal("invalid output accepted")
 		}
