@@ -1,4 +1,6 @@
 export {
+  HiOutlineViewGridAdd as DoubleIcon,
+  HiOutlineSwitchHorizontal as SwapIcon,
   HiOutlineLink as LinkIcon,
   HiOutlineDuplicate as CopyIcon,
   HiOutlineInformationCircle as DetailsIcon,

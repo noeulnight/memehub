@@ -44,6 +44,56 @@ tags:
     description: Planned administrator-only OpenAI analysis operations.
 security: []
 paths:
+  /double/{left}/{right}/file.{extension}:
+    get:
+      tags: [Memes]
+      operationId: doubleMeme
+      x-implementation-status: implemented
+      summary: Render two public image memes side by side
+      description: >-
+        Produces two 200x200 cells in selection order, preserving aspect ratios.
+        Use png for two still images, or gif when either source is GIF. Animated
+        output loops one longest input cycle at 20 fps; shorter inputs repeat.
+        Each GIF must be at most 30 seconds. No new meme or stored object is created.
+        Both sources must remain ready and undeleted. ETag and one-hour public
+        HTTP caching are supported. Two concurrent renders are allowed per API process.
+      security: []
+      parameters:
+        - name: left
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+        - name: right
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+        - name: extension
+          in: path
+          required: true
+          schema: {type: string, enum: [png, gif]}
+        - name: If-None-Match
+          in: header
+          schema: {type: string}
+      responses:
+        '200':
+          description: Combined media, at most 10 MiB
+          content:
+            image/png:
+              schema: {type: string, format: binary}
+            image/gif:
+              schema: {type: string, format: binary}
+        '304':
+          description: Source hashes have not changed
+        '400':
+          description: Invalid identifier or output extension
+        '404':
+          description: A source is missing, deleted, unready, or not an image
+        '422':
+          description: Animation exceeds 30 seconds or rendering failed
+        '502':
+          description: Source storage is unavailable
+        '503':
+          description: Storage is not configured or render slots are busy; busy responses include Retry-After
   /collections:
     get:
       operationId: listCollections
