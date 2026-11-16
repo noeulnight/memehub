@@ -14,7 +14,7 @@ import { MemeCardInteraction } from './MemeCardInteraction';
 import { MemeSave } from './MemeSave';
 import { Skeleton } from '../../../shared/ui/skeleton';
 import { Button } from '../../../shared/ui/button';
-import { AudioIcon, DetailsIcon } from '../../../shared/ui/icons';
+import { AudioIcon, DetailsIcon, DoubleIcon } from '../../../shared/ui/icons';
 import { SafetyPreview } from './SafetyPreview';
 import { HoverPreview } from '../../../shared/ui/hover-preview';
 
@@ -119,6 +119,8 @@ export function MemeCard({
   analysis,
   detailOnly = false,
   onClose,
+  onSelect,
+  onCombine,
 }: {
   meme: Meme;
   index: number;
@@ -134,6 +136,8 @@ export function MemeCard({
   analysis?: ReactNode;
   detailOnly?: boolean;
   onClose?: () => void;
+  onSelect?: () => void;
+  onCombine?: () => void;
 }) {
   const [open, setOpen] = useState(detailOnly);
   const [revealed, setRevealed] = useState('');
@@ -157,6 +161,21 @@ export function MemeCard({
     setOpen(next);
     if (!next) onClose?.();
   }
+  const combineAction =
+    meme.content_type === 'image' && onCombine ? (
+      <Button
+        variant="secondary"
+        className="w-full"
+        disabled={hidden}
+        onClick={() => {
+          changeOpen(false);
+          onCombine();
+        }}
+      >
+        <DoubleIcon aria-hidden="true" />
+        Combine with another
+      </Button>
+    ) : null;
   const content = (
     <>
       <DialogPanelHeader>
@@ -278,13 +297,27 @@ export function MemeCard({
             </div>
           </section>
         )}
+        {combineAction}
       </DialogBody>
     </>
   );
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
       {!detailOnly &&
-        (meme.content_type === 'audio' ? (
+        (onSelect && meme.content_type === 'image' ? (
+          <article className="meme-card min-w-0">
+            <SafetyPreview hidden={hidden} onReveal={reveal}>
+              <button
+                type="button"
+                aria-label={`Combine with: ${meme.title || 'Image'}`}
+                onClick={onSelect}
+                className="relative block w-full"
+              >
+                <ImagePreview meme={meme} eager={index < 24} />
+              </button>
+            </SafetyPreview>
+          </article>
+        ) : meme.content_type === 'audio' ? (
           <article className="meme-card min-w-0 space-y-3 py-2">
             <p className="flex items-center gap-2 text-sm">
               <AudioIcon aria-hidden="true" />

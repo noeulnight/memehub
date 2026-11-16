@@ -4,6 +4,7 @@ import { getSession } from '../../../entities/session';
 import { ManageMeme } from '../../../features/manage-meme';
 import { ManageAnalysis } from '../../../features/manage-analysis';
 import { CloseIcon } from '../../../shared/ui/icons';
+import { DoubleMeme } from '../../../features/double-meme';
 import { Button } from '../../../shared/ui/button';
 import { Masonry } from '../../../shared/ui/masonry';
 import { apiError, useApi } from '../../../shared/api/client';
@@ -25,6 +26,10 @@ export function MemeLibrary() {
   const api = useApi();
   const session = useQuery({ queryKey: ['session'], queryFn: () => getSession(api) });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [doubleSelection, setDoubleSelection] = useState<Meme[]>([]);
+  function closeDouble() {
+    setDoubleSelection([]);
+  }
   const [collectionsOpen, setCollectionsOpen] = useState(false);
   const [saveMemeId, setSaveMemeId] = useState('');
   const [collectionId, setCollectionId] = useState('');
@@ -135,6 +140,7 @@ export function MemeLibrary() {
           meme={sharedMeme.data}
           index={0}
           detailOnly
+          onCombine={() => setDoubleSelection([sharedMeme.data!])}
           onSave={() => setSaveMemeId(sharedMeme.data!.id)}
           onClose={() => {
             setSharedID('');
@@ -158,6 +164,16 @@ export function MemeLibrary() {
         />
       )}
       <main id="main" className="relative z-0 px-4 pb-32 pt-4 sm:px-6 sm:pt-6">
+        {doubleSelection.length === 1 && (
+          <div className="mb-4 flex items-center justify-between gap-3 text-sm">
+            <p className="min-w-0 truncate text-muted-foreground" role="status">
+              Choose an image to combine with {doubleSelection[0]!.title || 'this meme'}
+            </p>
+            <Button variant="ghost" size="sm" onClick={closeDouble}>
+              Cancel
+            </Button>
+          </div>
+        )}
         {collectionId && (
           <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
@@ -191,26 +207,36 @@ export function MemeLibrary() {
                   : undefined
               }
             >
-              {items.map((meme, i) => (
-                <MemeCard
-                  key={meme.id}
-                  meme={meme}
-                  index={i}
-                  onSave={() => setSaveMemeId(meme.id)}
-                  analysis={
-                    session.data?.is_admin && meme.content_type !== 'audio' ? (
-                      <ManageAnalysis meme={meme} hideCompleted />
-                    ) : undefined
-                  }
-                  onUserSearch={(username) => updateSearch(`@${username}`, filter)}
-                  onTagSearch={(tag) => updateSearch('', filter, tag)}
-                  manage={
-                    session.data && (session.data.id === meme.created_by || session.data.is_admin)
-                      ? (props) => <ManageMeme meme={meme} {...props} />
-                      : undefined
-                  }
-                />
-              ))}
+              {items
+                .filter(
+                  (meme) => doubleSelection.length !== 1 || meme.id !== doubleSelection[0]!.id,
+                )
+                .map((meme, i) => (
+                  <MemeCard
+                    key={meme.id}
+                    meme={meme}
+                    index={i}
+                    onSelect={
+                      doubleSelection.length === 1 && meme.content_type === 'image'
+                        ? () => setDoubleSelection(([left]) => [left!, meme])
+                        : undefined
+                    }
+                    onCombine={() => setDoubleSelection([meme])}
+                    onSave={() => setSaveMemeId(meme.id)}
+                    analysis={
+                      session.data?.is_admin && meme.content_type !== 'audio' ? (
+                        <ManageAnalysis meme={meme} hideCompleted />
+                      ) : undefined
+                    }
+                    onUserSearch={(username) => updateSearch(`@${username}`, filter)}
+                    onTagSearch={(tag) => updateSearch('', filter, tag)}
+                    manage={
+                      session.data && (session.data.id === meme.created_by || session.data.is_admin)
+                        ? (props) => <ManageMeme meme={meme} {...props} />
+                        : undefined
+                    }
+                  />
+                ))}
             </Masonry>
           ) : (
             !error && (
@@ -254,6 +280,15 @@ export function MemeLibrary() {
         </div>
       </main>
 
+      {doubleSelection.length === 2 && (
+        <DoubleMeme
+          key={doubleSelection.map((meme) => meme.id).join(':')}
+          left={doubleSelection[0]!}
+          right={doubleSelection[1]!}
+          onSwap={() => setDoubleSelection(([left, right]) => [right!, left!])}
+          onClose={closeDouble}
+        />
+      )}
       {session.data?.is_admin && (
         <AdminSettings open={settingsOpen} onOpenChange={setSettingsOpen} />
       )}
