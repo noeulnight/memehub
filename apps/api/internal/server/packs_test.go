@@ -3,13 +3,111 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/google/uuid"
 	"github.com/noeulnight/memehub/apps/api/internal/config"
 	"github.com/noeulnight/memehub/apps/api/internal/embedding"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestMemePackOrderingAcrossPages(t *testing.T) {
+	db := testPool(t)
+	issuer := newIssuer(t)
+	app, err := New(context.Background(), config.Config{AppBaseURL: "http://localhost:4321", OIDCIssuer: issuer.server.URL, OIDCClientID: "test-client", OIDCRedirectURL: "http://localhost:4321/api/auth/callback", SessionTTL: time.Hour, TextMaxLength: 10000, OpenAIModel: "test-model"}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := app.Handler()
+	owner, csrf := signIn(t, h, issuer, "owner", false)
+	var packs []pack
+	for _, name := range []string{"Beta", "alpha"} {
+		w := request(t, h, "POST", "/api/packs", map[string]string{"name": name}, owner, csrf)
+		mustStatus(t, w, 201)
+		var p pack
+		if err := json.Unmarshal(w.Body.Bytes(), &p); err != nil {
+			t.Fatal(err)
+		}
+		packs = append(packs, p)
+	}
+	// Interleave uploads; the newest unassigned memes must still be last.
+	for i, packID := range []string{"", packs[0].ID.String(), packs[1].ID.String(), "", packs[1].ID.String(), packs[0].ID.String(), ""} {
+		w := request(t, h, "POST", "/api/memes", map[string]any{"content_type": "text", "title": fmt.Sprint(i), "body_text": "pack ordering", "tags": []string{"test"}, "pack_id": packID}, owner, csrf)
+		mustStatus(t, w, 201)
+	}
+	// Equal timestamps exercise the ID tie-breaker within each pack.
+	if _, err := db.Exec(context.Background(), "UPDATE memes SET created_at='2026-01-01T00:00:00Z'"); err != nil {
+		t.Fatal(err)
+	}
+	getAll := func(path string, limit int) []Meme {
+		t.Helper()
+		var result []Meme
+		next := ""
+		for page := 0; ; page++ {
+			if page > 10 {
+				t.Fatal("pagination did not terminate")
+			}
+			w := request(t, h, "GET", fmt.Sprintf("%s&limit=%d&cursor=%s", path, limit, url.QueryEscape(next)), nil, nil, "")
+			mustStatus(t, w, 200)
+			var data struct {
+				Items []Meme  `json:"items"`
+				Next  *string `json:"next_cursor"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &data); err != nil {
+				t.Fatal(err)
+			}
+			result = append(result, data.Items...)
+			if data.Next == nil {
+				return result
+			}
+			next = *data.Next
+		}
+	}
+	baseline := getAll("/api/memes?", 100)
+	if len(baseline) != 7 {
+		t.Fatalf("expected 7 memes, got %d", len(baseline))
+	}
+	for i, name := range []string{"alpha", "alpha", "Beta", "Beta", "", "", ""} {
+		actual := ""
+		if baseline[i].PackName != nil {
+			actual = *baseline[i].PackName
+		}
+		if actual != name {
+			t.Fatalf("item %d: pack %q, want %q", i, actual, name)
+		}
+	}
+	for _, limit := range []int{1, 2, 3} {
+		items := getAll("/api/memes?type=text", limit)
+		if len(items) != len(baseline) {
+			t.Fatalf("limit %d: got %d items", limit, len(items))
+		}
+		for i := range items {
+			if items[i].ID != baseline[i].ID {
+				t.Fatalf("limit %d: item %d repeated, missing, or out of order", limit, i)
+			}
+		}
+	}
+	for _, query := range []string{"tag=test", "q=ordering"} {
+		items := getAll("/api/memes?"+query, 1)
+		if len(items) != 7 {
+			t.Fatalf("search %s: expected 7 items, got %d", query, len(items))
+		}
+		for i := 1; i < len(items); i++ {
+			if items[i-1].ID.String() <= items[i].ID.String() {
+				t.Fatalf("search %s was grouped instead of retaining creation/ID order", query)
+			}
+		}
+	}
+	if _, err := db.Exec(context.Background(), "UPDATE packs SET name=$2 WHERE id=$1", packs[0].ID, strings.Repeat("가", 100)); err != nil {
+		t.Fatal(err)
+	}
+	if items := getAll("/api/memes?pack="+packs[0].ID.String(), 1); len(items) != 2 {
+		t.Fatalf("long pack name pagination: got %d", len(items))
+	}
+}
 
 func TestPackLifecycleAndMemeFilters(t *testing.T) {
 	db := testPool(t)

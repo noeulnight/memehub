@@ -93,7 +93,10 @@ export function MemeLibrary() {
     packId,
   );
   const items = collection.data?.pages.flatMap((page) => page.items) || [];
-  const groups = groupMemesByPack(items);
+  const searching = Boolean(query.trim() || tag);
+  const groups = searching
+    ? [{ id: 'search', name: 'Search results', items }]
+    : groupMemesByPack(items);
   const loadError =
     collection.error ||
     (collectionId && selectedCollection.error) ||
@@ -221,16 +224,18 @@ export function MemeLibrary() {
               {groups.map((group, groupIndex) => (
                 <section
                   key={group.id}
-                  id={`pack-${group.id || 'other'}`}
+                  id={searching ? undefined : `pack-${group.id || 'other'}`}
                   aria-label={`${group.name} memes`}
                   className="scroll-mt-16"
                 >
-                  <div className="mb-4 flex items-center gap-4">
-                    <h2 className="shrink-0 text-sm font-medium text-muted-foreground">
-                      {group.name}
-                    </h2>
-                    <Separator className="flex-1" />
-                  </div>
+                  {!searching && (
+                    <div className="mb-4 flex items-center gap-4">
+                      <h2 className="shrink-0 text-sm font-medium text-muted-foreground">
+                        {group.name}
+                      </h2>
+                      <Separator className="flex-1" />
+                    </div>
+                  )}
                   <Masonry
                     onNearEnd={
                       groupIndex === groups.length - 1 && cursor && !collection.isFetching && !error

@@ -325,6 +325,12 @@ type cursor struct {
 	ID        uuid.UUID `json:"id"`
 }
 
+type memeListCursor struct {
+	cursor
+	PackName *string    `json:"pack_name"`
+	PackID   *uuid.UUID `json:"pack_id"`
+}
+
 func validUsername(value string) bool {
 	return value != "" && utf8.ValidString(value) && utf8.RuneCountInString(value) <= 200 && !strings.ContainsRune(value, 0) && strings.IndexFunc(value, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) == -1
 }
@@ -452,27 +458,46 @@ func (s *Server) listMemesFiltered(w http.ResponseWriter, r *http.Request, analy
 		s.searchMemes(w, r, strings.TrimSpace(q), limit, args)
 		return
 	}
+	groupByPack := strings.TrimSpace(q) == "" && len(query["tag"]) == 0 && username == ""
 	var at *time.Time
 	var id *uuid.UUID
+	var packName string
+	var afterPack *uuid.UUID
 	if raw := query.Get("cursor"); raw != "" {
-		if len(raw) > 512 {
+		if len(raw) > 1024 {
 			problem(w, 400, "invalid_cursor")
 			return
 		}
 		data, err := base64.RawURLEncoding.DecodeString(raw)
-		var c cursor
-		if err != nil || json.Unmarshal(data, &c) != nil || c.CreatedAt.IsZero() || c.ID == uuid.Nil {
+		var c memeListCursor
+		if err != nil || json.Unmarshal(data, &c) != nil || c.CreatedAt.IsZero() || c.ID == uuid.Nil || (c.PackName != nil) != groupByPack {
 			problem(w, 400, "invalid_cursor")
 			return
 		}
 		at = &c.CreatedAt
 		id = &c.ID
+		if c.PackName != nil {
+			packName, afterPack = *c.PackName, c.PackID
+		}
 	}
 	pattern := "%" + strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(q) + "%"
-	rows, err := s.db.Query(r.Context(), "SELECT "+memeColumns+" FROM memes m WHERE "+memeScopeSQL+`
- AND (`+memeTextSQL+`)
+	statement := "SELECT " + memeColumns + " FROM memes m WHERE " + memeScopeSQL + `
+ AND (` + memeTextSQL + `)
  AND ($13::timestamptz IS NULL OR (m.created_at,m.id)<($13,$14::uuid))
- ORDER BY m.created_at DESC,m.id DESC LIMIT $15`, append(args, pattern, q, at, id, limit+1)...)
+ ORDER BY m.created_at DESC,m.id DESC LIMIT $15`
+	args = append(args, pattern, q, at, id)
+	// Pack order is part of the cursor so pages finish each pack before starting Other.
+	if groupByPack {
+		statement = "SELECT " + memeColumns + " FROM memes m LEFT JOIN packs p ON p.id=m.pack_id WHERE " + memeScopeSQL + `
+ AND (` + memeTextSQL + `)
+ AND ($13::timestamptz IS NULL
+  OR (m.pack_id IS NULL,lower(coalesce(p.name,'')),coalesce(m.pack_id,'00000000-0000-0000-0000-000000000000'::uuid))
+   > ($16::uuid IS NULL,lower($15::text),coalesce($16::uuid,'00000000-0000-0000-0000-000000000000'::uuid))
+  OR (m.pack_id IS NOT DISTINCT FROM $16::uuid AND (m.created_at,m.id)<($13,$14::uuid)))
+ ORDER BY m.pack_id IS NULL,lower(p.name),m.pack_id,m.created_at DESC,m.id DESC LIMIT $17`
+		args = append(args, packName, afterPack)
+	}
+	rows, err := s.db.Query(r.Context(), statement, append(args, limit+1)...)
 	if err != nil {
 		internal(w)
 		return
@@ -495,7 +520,15 @@ func (s *Server) listMemesFiltered(w http.ResponseWriter, r *http.Request, analy
 	if len(items) > limit {
 		items = items[:limit]
 		last := items[len(items)-1]
-		data, _ := json.Marshal(cursor{CreatedAt: last.CreatedAt, ID: last.ID})
+		c := memeListCursor{cursor: cursor{CreatedAt: last.CreatedAt, ID: last.ID}}
+		if groupByPack {
+			name := ""
+			if last.PackName != nil {
+				name = *last.PackName
+			}
+			c.PackName, c.PackID = &name, last.PackID
+		}
+		data, _ := json.Marshal(c)
 		value := base64.RawURLEncoding.EncodeToString(data)
 		next = &value
 	}

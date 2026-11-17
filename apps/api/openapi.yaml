@@ -534,13 +534,16 @@ paths:
         - Memes
       summary: Search the shared meme library
       description:
-        Public endpoint. Includes only ready, non-deleted memes. Without a text query, orders by
-        created_at DESC, id DESC. When VECTOR_SEARCH_ENABLED is true, text queries combine keyword
+        Public endpoint. Includes only ready, non-deleted memes. Without text, tag, or uploader search, orders by
+        case-insensitive pack name, pack ID, then created_at DESC and id DESC within each pack.
+        Unassigned memes come last. The cursor preserves this order across pages.
+        When VECTOR_SEARCH_ENABLED is true, text queries combine keyword
         and text-embedding-3-large semantic rankings, prioritizing exact title, OCR, and tag matches.
         Search results are limited to 500 IDs and keep their order for 10 minutes across pages.
         Visibility and collection membership are checked on every page. Expired search cursors return
         400 search_cursor_expired; restart from the first page. OpenAI failures fall back to keyword
         results. Without vector search, text queries retain substring matching and creation order.
+        Tag and uploader searches also retain creation order instead of grouping by pack.
       x-implementation-status: implemented
       security: []
       responses:
