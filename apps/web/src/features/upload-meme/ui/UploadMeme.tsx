@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type SubmitEvent, type ChangeEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { isAxiosError } from 'axios';
+import { PackField } from '../../../entities/pack';
 import { getSession } from '../../../entities/session';
 import { ArrowUpIcon, AudioIcon, ImageIcon, LoadingIcon, PlusIcon } from '../../../shared/ui/icons';
 import { Dialog, DialogTitle, DialogDescription } from '../../../shared/ui/dialog';
@@ -34,6 +35,7 @@ export function UploadMeme() {
   const [fileError, setFileError] = useState('');
   const queue = useUploadQueue(api, () => {
     void cache.invalidateQueries({ queryKey: ['memes'] });
+    void cache.invalidateQueries({ queryKey: ['packs'] });
   });
   function beginLogin() {
     const appBase = import.meta.env.PUBLIC_APP_BASE_URL;
@@ -84,6 +86,7 @@ export function UploadMeme() {
     },
     onSuccess: () => {
       void cache.invalidateQueries({ queryKey: ['memes'] });
+      void cache.invalidateQueries({ queryKey: ['packs'] });
       form.current?.reset();
       setBodyText('');
       setOpen(false);
@@ -93,6 +96,8 @@ export function UploadMeme() {
   function metadata(): UploadMetadata {
     const data = new FormData(form.current!);
     return {
+      pack_id:
+        String(data.get('pack_id') || '') === 'none' ? '' : String(data.get('pack_id') || ''),
       title: String(data.get('title') || ''),
       source_url: String(data.get('source_url') || ''),
       source_name: String(data.get('source_name') || ''),
@@ -432,6 +437,10 @@ function MetadataFields({
         Title (optional)
         <Input className="mt-2" {...field('title')} maxLength={200} placeholder="Give it a name" />
       </label>
+      <PackField
+        value={value ? value.pack_id || '' : undefined}
+        onChange={value ? (pack_id) => onChange?.({ ...value, pack_id }) : undefined}
+      />
       <details>
         <summary className="cursor-pointer text-xs text-muted-foreground">
           Add original source (optional)

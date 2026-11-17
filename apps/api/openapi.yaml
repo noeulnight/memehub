@@ -62,26 +62,26 @@ paths:
         - name: left
           in: path
           required: true
-          schema: {type: string, format: uuid}
+          schema: { type: string, format: uuid }
         - name: right
           in: path
           required: true
-          schema: {type: string, format: uuid}
+          schema: { type: string, format: uuid }
         - name: extension
           in: path
           required: true
-          schema: {type: string, enum: [png, gif]}
+          schema: { type: string, enum: [png, gif] }
         - name: If-None-Match
           in: header
-          schema: {type: string}
+          schema: { type: string }
       responses:
         '200':
           description: Combined media, at most 10 MiB
           content:
             image/png:
-              schema: {type: string, format: binary}
+              schema: { type: string, format: binary }
             image/gif:
-              schema: {type: string, format: binary}
+              schema: { type: string, format: binary }
         '304':
           description: Source hashes have not changed
         '400':
@@ -251,7 +251,13 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { description: Origin or CSRF validation failed. }
-        '404': { description: Collection is absent or not owned, or meme is absent, deleted, or not ready. }
+        '404':
+          {
+            description: Collection is absent or not owned,
+            or meme is absent,
+            deleted,
+            or not ready.,
+          }
         '500': { $ref: '#/components/responses/InternalError' }
     delete:
       operationId: removeCollectionMeme
@@ -268,6 +274,103 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { description: Origin or CSRF validation failed. }
         '404': { description: Collection does not exist or belongs to another user. }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /packs:
+    get:
+      operationId: listPacks
+      tags: [Packs]
+      summary: List explicit meme packs, independently of tags
+      description: Public. Includes empty packs. Ordered by lowercase name and ID, 100 per page. Counts include only ready, non-deleted memes.
+      security: []
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: string, maxLength: 1024 }
+      responses:
+        '200':
+          description: Pack page
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Pack' } }
+                  next_cursor: { type: [string, 'null'] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      operationId: createPack
+      tags: [Packs]
+      summary: Create a shared pack as an authenticated user
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PackInput' }
+      responses:
+        '201':
+          description: Pack created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pack' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: Case-insensitive pack name already exists. }
+        '422': { $ref: '#/components/responses/UnprocessableContent' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /packs/{packID}:
+    parameters:
+      - name: packID
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      operationId: updatePack
+      tags: [Packs]
+      summary: Update a pack owned by the current user, or any pack as an administrator
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PackInput' }
+      responses:
+        '200':
+          description: Pack updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pack' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Pack absent or not owned. }
+        '409': { description: Case-insensitive pack name already exists. }
+        '422': { $ref: '#/components/responses/UnprocessableContent' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      operationId: deletePack
+      tags: [Packs]
+      summary: Delete an owned pack, or any pack as an administrator
+      description: Preserves all memes. Their pack membership becomes NULL. Tags are unaffected.
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '204': { description: Pack deleted. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Pack absent or not owned. }
         '500': { $ref: '#/components/responses/InternalError' }
   /health/live:
     get:
@@ -466,6 +569,10 @@ paths:
           schema:
             type: boolean
             default: false
+        - name: pack
+          in: query
+          description: Exact explicit pack ID. Combines with text, tags, safety, type, and ownership filters in keyword and semantic search.
+          schema: { type: string, format: uuid }
         - name: collection
           in: query
           description: Filter to a collection owned by the authenticated user. Requires login; returns 404 for missing or other users' collections. Combines with all existing filters and preserves the active list or search ordering.
@@ -1505,6 +1612,33 @@ components:
               value:
                 error: invalid_csrf_token
   schemas:
+    PackInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          {
+            type: string,
+            minLength: 1,
+            maxLength: 100,
+            description: Trimmed NFC name. Case-insensitive unique across packs.,
+          }
+        source_url:
+          {
+            type: string,
+            maxLength: 2048,
+            description: Optional HTTP or HTTPS URL without embedded credentials.,
+          }
+    Pack:
+      type: object
+      required: [id, name, source_url, created_by, meme_count]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        source_url: { type: [string, 'null'] }
+        created_by: { type: string, format: uuid }
+        meme_count: { type: integer, minimum: 0 }
     Collection:
       type: object
       required: [id, name, created_at, updated_at, meme_count, contains_meme]
@@ -1590,6 +1724,9 @@ components:
         - content_type
         - body_text
       properties:
+        pack_id:
+          type: string
+          description: Optional explicit pack UUID. Empty string clears membership. Omit on update to preserve membership. Existing memes are never assigned from tags automatically.
         content_type:
           type: string
           enum:
@@ -1641,6 +1778,9 @@ components:
         - body_text
         - content_revision
       properties:
+        pack_id:
+          type: string
+          description: Optional explicit pack UUID. Empty string clears membership. Omit on update to preserve membership. Existing memes are never assigned from tags automatically.
         content_type:
           type: string
           enum:
@@ -1695,6 +1835,9 @@ components:
         - content_type
         - content_revision
       properties:
+        pack_id:
+          type: string
+          description: Optional explicit pack UUID. Empty string clears membership. Omit on update to preserve membership. Existing memes are never assigned from tags automatically.
         content_type:
           type: string
           enum:
@@ -1742,6 +1885,9 @@ components:
         - content_type
         - content_revision
       properties:
+        pack_id:
+          type: string
+          description: Optional explicit pack UUID. Empty string clears membership. Omit on update to preserve membership. Existing memes are never assigned from tags automatically.
         content_type:
           type: string
           enum:
@@ -1804,6 +1950,11 @@ components:
         - updated_at
         - tags
       properties:
+        pack_id:
+          type: [string, 'null']
+          format: uuid
+        pack_name:
+          type: [string, 'null']
         id:
           type: string
           format: uuid
@@ -1821,7 +1972,18 @@ components:
             - 'null'
         mime_type:
           type: [string, 'null']
-          enum: [image/jpeg, image/png, image/webp, image/gif, audio/mpeg, audio/wav, audio/ogg, audio/mp4, null]
+          enum:
+            [
+              image/jpeg,
+              image/png,
+              image/webp,
+              image/gif,
+              audio/mpeg,
+              audio/wav,
+              audio/ogg,
+              audio/mp4,
+              null,
+            ]
         content_type:
           type: string
           enum:
@@ -2158,6 +2320,9 @@ components:
         - size_bytes
         - sha256
       properties:
+        pack_id:
+          type: string
+          description: Optional explicit pack UUID. Empty string clears membership. Omit on update to preserve membership. Existing memes are never assigned from tags automatically.
         content_type:
           type: string
           const: image
@@ -2223,6 +2388,9 @@ components:
         - size_bytes
         - sha256
       properties:
+        pack_id:
+          type: string
+          description: Optional explicit pack UUID. Empty string clears membership. Omit on update to preserve membership. Existing memes are never assigned from tags automatically.
         allow_duplicate:
           type: boolean
           default: false
@@ -2336,6 +2504,11 @@ components:
         - tags
         - upload
       properties:
+        pack_id:
+          type: [string, 'null']
+          format: uuid
+        pack_name:
+          type: [string, 'null']
         id:
           type: string
           format: uuid
@@ -2428,6 +2601,11 @@ components:
         - tags
         - upload
       properties:
+        pack_id:
+          type: [string, 'null']
+          format: uuid
+        pack_name:
+          type: [string, 'null']
         mime_type:
           type: [string, 'null']
           enum: [audio/mpeg, audio/wav, audio/ogg, audio/mp4, null]
@@ -2502,8 +2680,7 @@ components:
         upload:
           $ref: '#/components/schemas/SignedUpload'
     MemeCreateResponse:
-      description:
-        Flat meme response. Image and audio creation add signed upload instructions.
+      description: Flat meme response. Image and audio creation add signed upload instructions.
         Text creation keeps the existing response shape.
       oneOf:
         - $ref: '#/components/schemas/TextMeme'

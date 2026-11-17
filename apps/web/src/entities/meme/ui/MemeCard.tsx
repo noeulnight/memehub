@@ -235,6 +235,12 @@ export function MemeCard({
             </div>
           </SafetyPreview>
         )}
+        {meme.pack_name && (
+          <section className="space-y-2">
+            <h3 className="text-xs font-medium text-muted-foreground">Pack</h3>
+            <p className="text-sm">{meme.pack_name}</p>
+          </section>
+        )}
         <section aria-label="Tags" className="space-y-2">
           <h3 className="text-xs font-medium text-muted-foreground">Tags</h3>
           {(meme.safety_rating === 'sfw' || meme.safety_rating === 'nsfw') && (

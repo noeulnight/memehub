@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode, type SubmitEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { PackField } from '../../../entities/pack';
 import type { Meme } from '../../../entities/meme';
 import { apiError, useApi } from '../../../shared/api/client';
 import { Button } from '../../../shared/ui/button';
@@ -33,7 +34,10 @@ export function ManageMeme({
     onSuccess: async (_, input) => {
       setAction(null);
       if (!input) onDeleted();
-      await cache.invalidateQueries({ queryKey: ['memes'] });
+      await Promise.all([
+        cache.invalidateQueries({ queryKey: ['memes'] }),
+        cache.invalidateQueries({ queryKey: ['packs'] }),
+      ]);
     },
   });
   useEffect(() => {
@@ -44,6 +48,12 @@ export function ManageMeme({
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const input: Record<string, unknown> = {
+      pack_id:
+        data.get('pack_id') === null
+          ? meme.pack_id || ''
+          : data.get('pack_id') === 'none'
+            ? ''
+            : String(data.get('pack_id')),
       content_type: meme.content_type,
       content_revision: meme.content_revision,
       tags: String(data.get('tags') || '')
@@ -146,6 +156,7 @@ export function ManageMeme({
                   Separate tags with commas.
                 </span>
               </label>
+              <PackField defaultValue={meme.pack_id || ''} />
               <details className="space-y-4">
                 <summary className="cursor-pointer py-2 text-xs font-medium text-muted-foreground">
                   Source · optional

@@ -2,6 +2,7 @@ import axios, { type AxiosInstance } from 'axios';
 import type { Meme } from '../../../entities/meme';
 
 export type FileInput = {
+  pack_id?: string;
   file: File;
   title: string;
   source_url: string;

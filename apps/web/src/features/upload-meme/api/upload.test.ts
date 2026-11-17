@@ -11,6 +11,7 @@ describe('image uploads', () => {
     const input = {
       file: new File(['image bytes'], 'meme.png', { type: 'image/png' }),
       title: 'Meme',
+      pack_id: 'chosen-pack',
       source_url: '',
       source_name: 'Source',
       source_author: 'Author',
@@ -22,6 +23,7 @@ describe('image uploads', () => {
         expect(body.sha256).toMatch(/^[0-9a-f]{64}$/);
         expect(body.size_bytes).toBe(11);
         expect(body.source_author).toBe('Author');
+        expect(body.pack_id).toBe('chosen-pack');
         return {
           config,
           status: 201,
