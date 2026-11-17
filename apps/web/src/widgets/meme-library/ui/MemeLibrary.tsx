@@ -183,18 +183,6 @@ export function MemeLibrary() {
         />
       )}
       <main id="main" className="px-4 pb-32 pt-4 sm:px-6 sm:pt-6">
-        {groups.length > 1 && (
-          <nav
-            aria-label="Jump to pack"
-            className="sticky top-0 z-10 -mx-4 mb-4 flex gap-1 overflow-x-auto bg-background/95 px-4 py-2 backdrop-blur sm:-mx-6 sm:px-6"
-          >
-            {groups.map((group) => (
-              <Button key={group.id} asChild variant="ghost" size="sm" className="shrink-0">
-                <a href={`#pack-${group.id || 'other'}`}>{group.name}</a>
-              </Button>
-            ))}
-          </nav>
-        )}
         {doubleSelection.length === 1 && (
           <div className="mb-4 flex items-center justify-between gap-3 text-sm">
             <p className="min-w-0 truncate text-muted-foreground" role="status">
