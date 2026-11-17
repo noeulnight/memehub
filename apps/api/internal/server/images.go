@@ -74,6 +74,9 @@ func (s *Server) reserveMedia(w http.ResponseWriter, r *http.Request, sess sessi
 		internal(w)
 		return
 	}
+	if !savePack(r, tx, w, id, in.PackID) {
+		return
+	}
 	if err = saveTags(r.Context(), tx, id, in.Tags); err != nil {
 		internal(w)
 		return

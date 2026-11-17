@@ -22,11 +22,13 @@ export function UserMenu({
   onMineChange,
   onSettings,
   onCollections,
+  onPacks,
   inCollection,
 }: {
   mine: boolean;
   onSettings: () => void;
   onCollections: () => void;
+  onPacks: () => void;
   inCollection: boolean;
   onMineChange: (mine: boolean) => void;
 }) {
@@ -107,6 +109,9 @@ export function UserMenu({
                 aria-current={inCollection ? 'true' : undefined}
               >
                 <CollectionIcon aria-hidden="true" /> My collections
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onPacks}>
+                <CollectionIcon aria-hidden="true" /> Manage packs
               </DropdownMenuItem>
               {session.data.is_admin && (
                 <DropdownMenuItem onSelect={onSettings}>

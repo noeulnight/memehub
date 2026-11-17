@@ -5,6 +5,8 @@ import { ManageMeme } from '../../../features/manage-meme';
 import { ManageAnalysis } from '../../../features/manage-analysis';
 import { CloseIcon } from '../../../shared/ui/icons';
 import { DoubleMeme } from '../../../features/double-meme';
+import { Separator } from '../../../shared/ui/separator';
+import { groupMemesByPack } from '../model/groups';
 import { Button } from '../../../shared/ui/button';
 import { Masonry } from '../../../shared/ui/masonry';
 import { apiError, useApi } from '../../../shared/api/client';
@@ -15,6 +17,7 @@ import {
   type Meme,
   type ContentFilter,
 } from '../../../entities/meme';
+import { ManagePacks } from '../../../features/manage-packs';
 import { BrowseTags } from '../../../features/browse-tags';
 import { SearchDock } from '../../../features/search-memes';
 import { UserMenu } from '../../../features/user-menu';
@@ -25,6 +28,8 @@ import { MyCollections, SaveToCollection } from '../../../features/manage-collec
 export function MemeLibrary() {
   const api = useApi();
   const session = useQuery({ queryKey: ['session'], queryFn: () => getSession(api) });
+  const [packId, setPackId] = useState('');
+  const [packsOpen, setPacksOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [doubleSelection, setDoubleSelection] = useState<Meme[]>([]);
   function closeDouble() {
@@ -49,6 +54,7 @@ export function MemeLibrary() {
     setSharedID(params.get('meme') || '');
     setQuery(params.get('q') || '');
     setTag(params.get('tag') || '');
+    setPackId(params.get('pack') || '');
     setMine(params.get('mine') === 'true');
     setCollectionId(params.get('collection') || '');
     const kind = params.get('content_type');
@@ -77,8 +83,17 @@ export function MemeLibrary() {
     queryFn: ({ signal }) => getCollection(api, collectionId, signal),
     enabled: !!collectionId && !!session.data,
   });
-  const collection = useMemeList(query, filter, tag, mine, session.data?.id || '', collectionId);
+  const collection = useMemeList(
+    query,
+    filter,
+    tag,
+    mine,
+    session.data?.id || '',
+    collectionId,
+    packId,
+  );
   const items = collection.data?.pages.flatMap((page) => page.items) || [];
+  const groups = groupMemesByPack(items);
   const loadError =
     collection.error ||
     (collectionId && selectedCollection.error) ||
@@ -93,6 +108,7 @@ export function MemeLibrary() {
     selectedTag = '',
     onlyMine = mine,
     savedCollection = collectionId,
+    selectedPack = packId,
   ) {
     const normalized = value.trim();
     const own = onlyMine && !/^@\S+/.test(normalized);
@@ -101,11 +117,14 @@ export function MemeLibrary() {
     setTag(selectedTag);
     setFilter(kind);
     setCollectionId(savedCollection);
+    setPackId(selectedPack);
     const url = new URL(window.location.href);
     if (own) url.searchParams.set('mine', 'true');
     else url.searchParams.delete('mine');
     if (savedCollection) url.searchParams.set('collection', savedCollection);
     else url.searchParams.delete('collection');
+    if (selectedPack) url.searchParams.set('pack', selectedPack);
+    else url.searchParams.delete('pack');
     if (selectedTag) url.searchParams.set('tag', selectedTag);
     else url.searchParams.delete('tag');
     if (normalized) url.searchParams.set('q', normalized);
@@ -115,7 +134,7 @@ export function MemeLibrary() {
     window.history.replaceState(null, '', url);
   }
   function openCollection(selected: Collection) {
-    updateSearch('', '', '', false, selected.id);
+    updateSearch('', '', '', false, selected.id, '');
     setCollectionsOpen(false);
   }
 
@@ -163,7 +182,19 @@ export function MemeLibrary() {
           }
         />
       )}
-      <main id="main" className="relative z-0 px-4 pb-32 pt-4 sm:px-6 sm:pt-6">
+      <main id="main" className="px-4 pb-32 pt-4 sm:px-6 sm:pt-6">
+        {groups.length > 1 && (
+          <nav
+            aria-label="Jump to pack"
+            className="sticky top-0 z-10 -mx-4 mb-4 flex gap-1 overflow-x-auto bg-background/95 px-4 py-2 backdrop-blur sm:-mx-6 sm:px-6"
+          >
+            {groups.map((group) => (
+              <Button key={group.id} asChild variant="ghost" size="sm" className="shrink-0">
+                <a href={`#pack-${group.id || 'other'}`}>{group.name}</a>
+              </Button>
+            ))}
+          </nav>
+        )}
         {doubleSelection.length === 1 && (
           <div className="mb-4 flex items-center justify-between gap-3 text-sm">
             <p className="min-w-0 truncate text-muted-foreground" role="status">
@@ -198,46 +229,65 @@ export function MemeLibrary() {
               ))}
             </div>
           ) : items.length ? (
-            <Masonry
-              onNearEnd={
-                cursor && !collection.isFetching && !error
-                  ? () => {
-                      void collection.fetchNextPage({ cancelRefetch: false });
-                    }
-                  : undefined
-              }
-            >
-              {items
-                .filter(
-                  (meme) => doubleSelection.length !== 1 || meme.id !== doubleSelection[0]!.id,
-                )
-                .map((meme, i) => (
-                  <MemeCard
-                    key={meme.id}
-                    meme={meme}
-                    index={i}
-                    onSelect={
-                      doubleSelection.length === 1 && meme.content_type === 'image'
-                        ? () => setDoubleSelection(([left]) => [left!, meme])
+            <div className="space-y-8">
+              {groups.map((group, groupIndex) => (
+                <section
+                  key={group.id}
+                  id={`pack-${group.id || 'other'}`}
+                  aria-label={`${group.name} memes`}
+                  className="scroll-mt-16"
+                >
+                  <div className="mb-4 flex items-center gap-4">
+                    <h2 className="shrink-0 text-sm font-medium text-muted-foreground">
+                      {group.name}
+                    </h2>
+                    <Separator className="flex-1" />
+                  </div>
+                  <Masonry
+                    onNearEnd={
+                      groupIndex === groups.length - 1 && cursor && !collection.isFetching && !error
+                        ? () => {
+                            void collection.fetchNextPage({ cancelRefetch: false });
+                          }
                         : undefined
                     }
-                    onCombine={() => setDoubleSelection([meme])}
-                    onSave={() => setSaveMemeId(meme.id)}
-                    analysis={
-                      session.data?.is_admin && meme.content_type !== 'audio' ? (
-                        <ManageAnalysis meme={meme} hideCompleted />
-                      ) : undefined
-                    }
-                    onUserSearch={(username) => updateSearch(`@${username}`, filter)}
-                    onTagSearch={(tag) => updateSearch('', filter, tag)}
-                    manage={
-                      session.data && (session.data.id === meme.created_by || session.data.is_admin)
-                        ? (props) => <ManageMeme meme={meme} {...props} />
-                        : undefined
-                    }
-                  />
-                ))}
-            </Masonry>
+                  >
+                    {group.items
+                      .filter(
+                        (meme) =>
+                          doubleSelection.length !== 1 || meme.id !== doubleSelection[0]!.id,
+                      )
+                      .map((meme, i) => (
+                        <MemeCard
+                          key={meme.id}
+                          meme={meme}
+                          index={i}
+                          onSelect={
+                            doubleSelection.length === 1 && meme.content_type === 'image'
+                              ? () => setDoubleSelection(([left]) => [left!, meme])
+                              : undefined
+                          }
+                          onCombine={() => setDoubleSelection([meme])}
+                          onSave={() => setSaveMemeId(meme.id)}
+                          analysis={
+                            session.data?.is_admin && meme.content_type !== 'audio' ? (
+                              <ManageAnalysis meme={meme} hideCompleted />
+                            ) : undefined
+                          }
+                          onUserSearch={(username) => updateSearch(`@${username}`, filter)}
+                          onTagSearch={(tag) => updateSearch('', filter, tag)}
+                          manage={
+                            session.data &&
+                            (session.data.id === meme.created_by || session.data.is_admin)
+                              ? (props) => <ManageMeme meme={meme} {...props} />
+                              : undefined
+                          }
+                        />
+                      ))}
+                  </Masonry>
+                </section>
+              ))}
+            </div>
           ) : (
             !error && (
               <p className="py-12 text-center text-sm text-muted-foreground">
@@ -289,6 +339,13 @@ export function MemeLibrary() {
           onClose={closeDouble}
         />
       )}
+      {packsOpen && session.data && (
+        <ManagePacks
+          userId={session.data.id}
+          isAdmin={session.data.is_admin}
+          onClose={() => setPacksOpen(false)}
+        />
+      )}
       {session.data?.is_admin && (
         <AdminSettings open={settingsOpen} onOpenChange={setSettingsOpen} />
       )}
@@ -337,6 +394,7 @@ export function MemeLibrary() {
         <BrowseTags onSelect={(selectedTag) => updateSearch('', filter, selectedTag)} />
         <UploadMeme />
         <UserMenu
+          onPacks={() => setPacksOpen(true)}
           onSettings={() => setSettingsOpen(true)}
           onCollections={() => setCollectionsOpen(true)}
           inCollection={!!collectionId}

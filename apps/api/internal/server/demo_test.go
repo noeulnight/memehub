@@ -47,8 +47,14 @@ func TestDemoLocalImageLifecycle(t *testing.T) {
 			csrf = c.Value
 		}
 	}
+	packResponse := request(t, h, "POST", "/api/packs", map[string]string{"name": "Demo pack"}, cookies, csrf)
+	mustStatus(t, packResponse, 201)
+	var p pack
+	if err := json.Unmarshal(packResponse.Body.Bytes(), &p); err != nil {
+		t.Fatal(err)
+	}
 	data, hash := testPNG(t)
-	input := map[string]any{"content_type": "image", "original_filename": "demo.png", "mime_type": "image/png", "size_bytes": len(data), "sha256": hash, "title": "Local demo image"}
+	input := map[string]any{"content_type": "image", "original_filename": "demo.png", "mime_type": "image/png", "size_bytes": len(data), "sha256": hash, "title": "Local demo image", "pack_id": p.ID}
 	created := request(t, h, "POST", "/api/memes", input, cookies, csrf)
 	mustStatus(t, created, 201)
 	var reservation struct {
@@ -69,6 +75,9 @@ func TestDemoLocalImageLifecycle(t *testing.T) {
 	var meme Meme
 	if err := json.Unmarshal(completed.Body.Bytes(), &meme); err != nil || meme.Status != "ready" || meme.AnalysisStatus != "not_requested" {
 		t.Fatalf("unexpected image: %s", completed.Body.String())
+	}
+	if meme.PackID == nil || *meme.PackID != p.ID {
+		t.Fatal("image pack membership missing")
 	}
 	disk, err := os.ReadFile(filepath.Join(cfg.DemoDataDir, "originals", meme.ID.String()+".png"))
 	if err != nil || !bytes.Equal(disk, data) {

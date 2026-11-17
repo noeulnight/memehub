@@ -11,6 +11,7 @@ describe('meme queries', () => {
     api.defaults.adapter = async (config) => {
       expect(api.getUri(config)).toContain('q=100%25+%26+monday');
       expect(config.params.content_type).toBe('text');
+      expect(config.params.pack).toBe('pack-id');
       expect(config.params.cursor).toBe('cursor+/=');
       expect(config.signal).toBe(signal);
       expect(config.xsrfCookieName).toBe('memehub_csrf');
@@ -23,7 +24,19 @@ describe('meme queries', () => {
         data: { items: [], next_cursor: null },
       };
     };
-    expect(await listMemes(api, '  100% & monday  ', 'text', 'cursor+/=', signal)).toEqual({
+    expect(
+      await listMemes(
+        api,
+        '  100% & monday  ',
+        'text',
+        'cursor+/=',
+        signal,
+        '',
+        false,
+        '',
+        'pack-id',
+      ),
+    ).toEqual({
       items: [],
       next_cursor: null,
     });

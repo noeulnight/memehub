@@ -73,6 +73,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/auth/logout", s.logout)
 	mux.HandleFunc("GET /api/sitemap.xml", s.sitemap)
 	mux.HandleFunc("GET /api/tags", s.listTags)
+	mux.HandleFunc("GET /api/packs", s.listPacks)
+	mux.HandleFunc("POST /api/packs", s.writePack)
+	mux.HandleFunc("PUT /api/packs/{packID}", s.writePack)
+	mux.HandleFunc("DELETE /api/packs/{packID}", s.writePack)
 	mux.HandleFunc("GET /api/memes", s.listMemes)
 	for _, extension := range []string{"png", "gif"} {
 		mux.HandleFunc("GET /api/double/{left}/{right}/file."+extension, func(w http.ResponseWriter, r *http.Request) {

@@ -1,4 +1,6 @@
 export type Meme = {
+  pack_id?: string | null;
+  pack_name?: string | null;
   id: string;
   created_by: string;
   content_revision: number;
